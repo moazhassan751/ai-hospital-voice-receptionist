@@ -1,0 +1,52 @@
+{
+  "clinics": [
+    {
+      "id": "clinic-central",
+      "name": "City Care Hospital",
+      "area": "Downtown",
+      "address": "12 Jinnah Avenue, Downtown",
+      "phone": "+922135001001",
+      "providers": [
+        "Doctor Steve",
+        "Nurse Maha"
+      ],
+      "specialties": [
+        "General Medicine",
+        "Routine Care",
+        "Cardiology Consultations"
+      ]
+    },
+    {
+      "id": "clinic-north",
+      "name": "Northside Family Clinic",
+      "area": "North Nazimabad",
+      "address": "45 Block B, North Nazimabad",
+      "phone": "+922135002002",
+      "providers": [
+        "Doctor Steve"
+      ],
+      "specialties": [
+        "Family Medicine",
+        "Preventive Checkups",
+        "Pediatrics"
+      ]
+    },
+    {
+      "id": "clinic-east",
+      "name": "East End Health Center",
+      "area": "Gulshan",
+      "address": "88 University Road, Gulshan",
+      "phone": "+922135003003",
+      "providers": [
+        "Nurse Maha"
+      ],
+      "specialties": [
+        "Routine Care",
+        "Injections",
+        "Blood Pressure Monitoring",
+        "Vaccinations"
+      ]
+    }
+  ],
+  "appointments": []
+}
