@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 import httpx
 from pydantic import BaseModel
 
@@ -814,8 +815,52 @@ def execute_tool(func_name: str, func_args: Dict[str, Any]) -> tuple[str, bool]:
 
 
 # ==============================================================================
-# FASTAPI ROUTES: HEALTH, VAPI WEBHOOK, RETELL WEBHOOK
+# FASTAPI ROUTES: FRONTEND WEB CONSOLE, HEALTH, VAPI WEBHOOK, RETELL WEBHOOK
 # ==============================================================================
+class InsuranceCheckRequest(BaseModel):
+    payer: str
+    member_id: str
+    patient_name: str
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/dashboard", response_class=HTMLResponse)
+def serve_dashboard():
+    """Serves the interactive Hospital Voice Receptionist web control center."""
+    template_path = os.path.join(os.path.dirname(__file__), "templates", "index.html")
+    if not os.path.exists(template_path):
+        return HTMLResponse("<h1>Hospital Voice Receptionist Console</h1><p>Template not found.</p>")
+    with open(template_path, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    pub_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:3000").rstrip("/")
+    vapi_pub_key = os.getenv("VAPI_PUBLIC_KEY", "")
+    vapi_asst_id = os.getenv("VAPI_ASSISTANT_ID", "")
+
+    html = html.replace("{{PUBLIC_BASE_URL}}", pub_url)
+    html = html.replace("{{VAPI_PUBLIC_KEY}}", vapi_pub_key)
+    html = html.replace("{{VAPI_ASSISTANT_ID}}", vapi_asst_id)
+    return HTMLResponse(content=html, status_code=200)
+
+
+@app.get("/api/appointments")
+def api_get_appointments():
+    """Returns booked appointments from storage."""
+    return load_appointments()
+
+
+@app.get("/api/availability")
+def api_get_availability(provider: str = Query(...), date: str = Query(...)):
+    """Checks availability for a provider on a specific date."""
+    return check_availability(provider=provider, date=date)
+
+
+@app.post("/api/check-insurance")
+def api_check_insurance(req: InsuranceCheckRequest):
+    """Executes Stedi insurance eligibility verification."""
+    return check_insurance(payer=req.payer, member_id=req.member_id, patient_name=req.patient_name)
+
+
 @app.get("/health")
 def health_check():
     """Health check endpoint reporting backend mode, deployment mode, call mode, and greeting."""

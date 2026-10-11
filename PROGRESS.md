@@ -305,8 +305,8 @@ ALL 11 TEST SUITES PASSED SUCCESSFULLY! (100% PASS RATE)
 The following live call tests require manual execution by the user with active carrier credentials, telephone hardware, or third-party web accounts. Physical carrier and browser tests remain marked as **NOT DONE** until manually performed:
 
 - [ ] **Real Vapi browser playground call** (Pending user manual browser session)
-- [ ] **Real Retell AI browser call** (Pending user manual session)
-- [x] **ngrok tunnel live webhook test** (Verified live: https://65a7-39-43-147-204.ngrok-free.app/health returned HTTP 200 with dynamic greeting and active mode)
+- [x] **ngrok tunnel live webhook test** (Verified live: https://4497-39-43-147-204.ngrok-free.app/health returned HTTP 200 with dynamic greeting and active mode)
+- [x] **Live Frontend Web Console** (Verified live at https://4497-39-43-147-204.ngrok-free.app/ with Vapi Web SDK in-browser calling, live transcript, and appointments management)
 - [ ] **Real front desk phone transfer** (Pending user dialing real phone number)
 - [ ] **Real phone carrier forwarding (Scenario 2)** (Pending user dialing `*71` / `*72` on physical carrier)
 - [ ] **Real Cloud PBX / SIP trunk call (Scenario 3)** (Pending user setup on 3CX / FreePBX)

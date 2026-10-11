@@ -631,14 +631,29 @@ def handle_sync_assistant(args: argparse.Namespace) -> None:
             "headers": {
                 "x-vapi-secret": webhook_secret
             }
-        }
+        },
+        "serverMessages": rendered_cfg.get("serverMessages", [
+            "conversation-update",
+            "end-of-call-report",
+            "function-call",
+            "hang",
+            "speech-update",
+            "status-update",
+            "tool-calls",
+            "transfer-destination-request",
+            "user-interrupted"
+        ]),
+        "clientMessages": rendered_cfg.get("clientMessages", [
+            "transcript",
+            "tool-calls"
+        ])
     }
 
     print(f"[*] Target Assistant ID: {assistant_id}")
     print(f"[*] Multilingual Support: Urdu, English, French, Spanish, Arabic")
     print(f"[*] Medical Providers: Doctor Steve & Nurse Maha")
-    print(f"[*] Voice Provider: {patch_payload['voice']['provider']} ({patch_payload['voice'].get('model', 'eleven_turbo_v2_5')})")
-    print(f"[*] Transcriber: {patch_payload['transcriber']['provider']} ({patch_payload['transcriber']['model']}, language: {patch_payload['transcriber']['language']})")
+    print(f"[*] Voice Provider: {patch_payload['voice']['provider']} ({patch_payload['voice'].get('model', 'eleven_multilingual_v2')})")
+    print(f"[*] Transcriber: {patch_payload['transcriber']['provider']} ({patch_payload['transcriber'].get('model', 'stt-rt-v5')}, language: {patch_payload['transcriber'].get('language', 'multilingual-auto')})")
     print(f"[*] Webhook Server URL: {patch_payload['server']['url']}")
     print(f"[*] Emergency Forwarding: {front_desk}")
 
@@ -677,6 +692,22 @@ def handle_sync_assistant(args: argparse.Namespace) -> None:
                 print("  [OK] Full Multilingual Support (Urdu, English, French, Spanish, Arabic)")
                 print("  [OK] Nurse Maha & Doctor Steve clinical scopes")
                 print("  [OK] Up-to-date system prompt & live webhooks")
+                
+                # Also synchronize org-level tools if present in Vapi
+                try:
+                    tools_resp = client.get(f"{VAPI_BASE_URL}/tool", headers=get_vapi_headers(api_key))
+                    if tools_resp.status_code == 200:
+                        for tool in tools_resp.json():
+                            fn_name = tool.get("function", {}).get("name")
+                            if tool.get("type") == "function" and fn_name in ["check_availability", "book_appointment", "find_clinic", "check_insurance"]:
+                                client.patch(
+                                    f"{VAPI_BASE_URL}/tool/{tool['id']}",
+                                    headers=get_vapi_headers(api_key),
+                                    json={"server": {"url": f"{public_base_url}/webhook", "secret": webhook_secret}}
+                                )
+                                print(f"  [OK] Synced org-level tool '{fn_name}' URL -> {public_base_url}/webhook")
+                except Exception as t_err:
+                    print(f"  [NOTE] Org tools check: {t_err}")
                 print("=" * 60)
             else:
                 print(f"\n[ERROR] Vapi API returned HTTP {resp.status_code}:")

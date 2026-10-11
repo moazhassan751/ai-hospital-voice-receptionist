@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hospital AI Voice Receptionist - Live Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Vapi Web SDK -->
+  <script src="https://unpkg.com/@vapi-ai/web/dist/vapi.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #0a0e17;
+      --bg-card: rgba(17, 24, 39, 0.75);
+      --bg-card-hover: rgba(30, 41, 59, 0.85);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-glow: rgba(6, 182, 212, 0.4);
+      --accent-cyan: #06b6d4;
+      --accent-teal: #14b8a6;
+      --accent-emerald: #10b981;
+      --accent-indigo: #6366f1;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --glow-cyan: 0 0 35px rgba(6, 182, 212, 0.25);
+      --glow-emerald: 0 0 30px rgba(16, 185, 129, 0.25);
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: radial-gradient(circle at 15% 20%, rgba(6, 182, 212, 0.08), transparent 40%),
+                  radial-gradient(circle at 85% 80%, rgba(99, 102, 241, 0.08), transparent 40%),
+                  linear-gradient(135deg, #070b12 0%, #0d131f 50%, #0a0e17 100%);
+      color: var(--text-main);
+      font-family: 'Outfit', sans-serif;
+      min-height: 100vh;
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    .container {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 24px 20px 60px 20px;
+    }
+
+    /* HEADER & STATUS BAR */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 30px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .logo-icon {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-indigo));
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      box-shadow: var(--glow-cyan);
+    }
+
+    .brand-title h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(90deg, #ffffff, #cbd5e1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-title p {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .header-badges {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #34d399;
+      letter-spacing: 0.3px;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: #10b981;
+      border-radius: 50%;
+      animation: pulse-ring 2s infinite;
+    }
+
+    @keyframes pulse-ring {
+      0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+
+    .info-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      border-radius: 9999px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* BANNER NOTIFICATION */
+    .banner {
+      background: linear-gradient(90deg, rgba(6, 182, 212, 0.12), rgba(99, 102, 241, 0.12));
+      border: 1px solid rgba(6, 182, 212, 0.25);
+      border-radius: var(--radius-md);
+      padding: 14px 20px;
+      margin-bottom: 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .banner-text {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13.5px;
+    }
+
+    .banner-icon {
+      font-size: 20px;
+    }
+
+    .banner-url {
+      background: rgba(0, 0, 0, 0.35);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent-cyan);
+      font-weight: 500;
+    }
+
+    /* GRID SYSTEM */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 1024px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* CARDS */
+    .card {
+      background: var(--bg-card);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      transition: all 0.25s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      background: var(--bg-card-hover);
+    }
+
+    .card-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .card-title h2 {
+      font-size: 17px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      letter-spacing: -0.3px;
+    }
+
+    .card-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: -12px;
+      margin-bottom: 20px;
+    }
+
+    /* VOICE CALL INTERFACE */
+    .voice-hub {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 30px 20px;
+      background: radial-gradient(circle at 50% 40%, rgba(6, 182, 212, 0.08), transparent 70%);
+      border-radius: var(--radius-md);
+      margin-bottom: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .voice-orb-wrapper {
+      position: relative;
+      width: 140px;
+      height: 140px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    .voice-ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      transition: all 0.3s ease;
+    }
+
+    .ring-1 {
+      width: 140px;
+      height: 140px;
+      border-color: rgba(6, 182, 212, 0.15);
+    }
+
+    .ring-2 {
+      width: 110px;
+      height: 110px;
+      border-color: rgba(6, 182, 212, 0.3);
+    }
+
+    .voice-orb {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #0e7490, #06b6d4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      color: white;
+      box-shadow: 0 0 30px rgba(6, 182, 212, 0.4);
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      z-index: 2;
+    }
+
+    .voice-orb:hover {
+      transform: scale(1.08);
+      box-shadow: 0 0 45px rgba(6, 182, 212, 0.65);
+    }
+
+    .voice-orb.active {
+      background: linear-gradient(135deg, #e11d48, #f43f5e);
+      box-shadow: 0 0 45px rgba(244, 63, 94, 0.7);
+      animation: pulse-call 1.5s infinite;
+    }
+
+    @keyframes pulse-call {
+      0% { transform: scale(1); box-shadow: 0 0 20px rgba(244, 63, 94, 0.5); }
+      50% { transform: scale(1.06); box-shadow: 0 0 45px rgba(244, 63, 94, 0.85); }
+      100% { transform: scale(1); box-shadow: 0 0 20px rgba(244, 63, 94, 0.5); }
+    }
+
+    .call-btn-action {
+      background: linear-gradient(135deg, #06b6d4, #0284c7);
+      color: white;
+      border: none;
+      padding: 12px 32px;
+      border-radius: 9999px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: all 0.2s;
+      box-shadow: 0 4px 18px rgba(6, 182, 212, 0.35);
+    }
+
+    .call-btn-action:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(6, 182, 212, 0.5);
+    }
+
+    .call-btn-action.stop {
+      background: linear-gradient(135deg, #e11d48, #be123c);
+      box-shadow: 0 4px 18px rgba(225, 29, 72, 0.35);
+    }
+
+    .call-state-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 12px;
+      font-weight: 500;
+    }
+
+    /* LANGUAGE TAGS */
+    .languages-bar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 18px;
+    }
+
+    .lang-pill {
+      font-size: 11.5px;
+      padding: 4px 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      border-radius: 9999px;
+      color: var(--text-muted);
+    }
+
+    .lang-pill.active {
+      background: rgba(6, 182, 212, 0.15);
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+
+    /* TRANSCRIPT LOG */
+    .transcript-box {
+      background: #060911;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      height: 240px;
+      overflow-y: auto;
+      font-family: 'Outfit', sans-serif;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .transcript-item {
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13.5px;
+      max-width: 88%;
+      animation: fadeIn 0.25s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .transcript-item.assistant {
+      align-self: flex-start;
+      background: rgba(30, 41, 59, 0.7);
+      border-left: 3px solid var(--accent-cyan);
+      color: #e2e8f0;
+    }
+
+    .transcript-item.user {
+      align-self: flex-end;
+      background: rgba(14, 116, 144, 0.35);
+      border-right: 3px solid #38bdf8;
+      color: #f0f9ff;
+    }
+
+    .transcript-item.system {
+      align-self: center;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-dim);
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* SCHEDULE & DOCTORS */
+    .providers-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .provider-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .provider-card:hover, .provider-card.selected {
+      border-color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.06);
+    }
+
+    .provider-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #1e293b, #334155);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .provider-info h4 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .provider-info p {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .date-checker-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    input[type="date"], select, input[type="text"] {
+      background: #090d16;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: white;
+      padding: 9px 12px;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+      transition: border 0.2s;
+      width: 100%;
+    }
+
+    input:focus, select:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border-subtle);
+      color: white;
+      padding: 9px 18px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    .slots-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+      gap: 8px;
+      max-height: 160px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .slot-pill {
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      border-radius: 6px;
+      padding: 7px 4px;
+      text-align: center;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      color: #34d399;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .slot-pill:hover {
+      background: rgba(16, 185, 129, 0.2);
+      border-color: #10b981;
+    }
+
+    /* APPOINTMENTS TABLE */
+    .table-wrapper {
+      overflow-x: auto;
+      margin-top: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th {
+      text-align: left;
+      padding: 10px 12px;
+      color: var(--text-dim);
+      font-weight: 500;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    td {
+      padding: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: #cbd5e1;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .badge-confirmed {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    /* INSURANCE TESTER */
+    .insurance-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr auto;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    @media (max-width: 768px) {
+      .insurance-form {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .result-alert {
+      margin-top: 14px;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      display: none;
+    }
+
+    .result-alert.success {
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #6ee7b7;
+      display: block;
+    }
+
+    .result-alert.error {
+      background: rgba(244, 63, 94, 0.1);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      color: #fda4af;
+      display: block;
+    }
+
+    /* FOOTER BAR */
+    footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text-dim);
+      font-size: 12.5px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <!-- TOP HEADER -->
+  <header>
+    <div class="brand">
+      <div class="logo-icon">🏥</div>
+      <div class="brand-title">
+        <h1>Hospital AI Voice Receptionist</h1>
+        <p>Telephony & Webhook Live Control Center</p>
+      </div>
+    </div>
+    <div class="header-badges">
+      <div class="status-badge" id="backendBadge">
+        <span class="pulse-dot"></span>
+        <span id="backendStatusText">SYSTEM ONLINE</span>
+      </div>
+      <div class="info-badge">
+        <span>🕒</span>
+        <span id="timezoneClock">Asia/Karachi</span>
+      </div>
+      <div class="info-badge">
+        <span>📞</span>
+        <span>+1 (934) 599-0119</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- NGROK TUNNEL BANNER -->
+  <div class="banner">
+    <div class="banner-text">
+      <span class="banner-icon">🌐</span>
+      <span>Live Public Webhook Ingress (ngrok):</span>
+      <span class="banner-url" id="publicUrlText">{{PUBLIC_BASE_URL}}</span>
+    </div>
+    <div style="display: flex; gap: 8px;">
+      <a href="/docs" target="_blank" class="btn-secondary" style="text-decoration: none; font-size: 12px; padding: 6px 14px;">FastAPI Docs</a>
+      <a href="/health" target="_blank" class="btn-secondary" style="text-decoration: none; font-size: 12px; padding: 6px 14px;">/health JSON</a>
+    </div>
+  </div>
+
+  <!-- MAIN 2-COLUMN GRID -->
+  <div class="dashboard-grid">
+    
+    <!-- LEFT COLUMN: VOICE INTERFACE & CALL CONTROLS -->
+    <div>
+      <div class="card" style="margin-bottom: 24px;">
+        <div class="card-title">
+          <h2>🎙️ Browser Voice Receptionist</h2>
+          <span class="info-badge" id="vapiStatusBadge">Vapi Web Ready</span>
+        </div>
+        <p class="card-subtitle">Speak directly with Doctor Steve & Nurse Maha's receptionist using your microphone.</p>
+
+        <div class="voice-hub">
+          <div class="voice-orb-wrapper">
+            <div class="voice-ring ring-1"></div>
+            <div class="voice-ring ring-2"></div>
+            <div class="voice-orb" id="voiceOrb" onclick="toggleCall()" title="Click to start call">
+              🎙️
+            </div>
+          </div>
+          <button class="call-btn-action" id="callBtn" onclick="toggleCall()">
+            <span>Start Voice Call</span>
+          </button>
+          <div class="call-state-label" id="callStateLabel">Microphone ready. Click button to begin.</div>
+
+          <div class="languages-bar">
+            <span class="lang-pill active">🇬🇧 English</span>
+            <span class="lang-pill active">🇵🇰 Urdu (اردو)</span>
+            <span class="lang-pill active">🇫🇷 French</span>
+            <span class="lang-pill active">🇪🇸 Spanish</span>
+            <span class="lang-pill active">🇸🇦 Arabic</span>
+          </div>
+        </div>
+
+        <div class="card-title" style="margin-top: 10px; margin-bottom: 10px;">
+          <h2 style="font-size: 14px;">📝 Live Call Transcript</h2>
+          <button class="btn-secondary" onclick="clearTranscript()" style="font-size: 11px; padding: 4px 10px;">Clear</button>
+        </div>
+        <div class="transcript-box" id="transcriptBox">
+          <div class="transcript-item system">System: Webhook backend active. Call to test speech-to-text and tools.</div>
+          <div class="transcript-item assistant">AI Receptionist: Hello, good morning! How can I help you today?</div>
+        </div>
+
+        <div style="margin-top: 18px; display: flex; justify-content: space-between; align-items: center; background: rgba(244, 63, 94, 0.08); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(244, 63, 94, 0.2);">
+          <div>
+            <div style="font-size: 13px; font-weight: 600; color: #fda4af;">🚨 Emergency Escalation</div>
+            <div style="font-size: 12px; color: var(--text-muted);">Transfer to Front Desk: +923007903061</div>
+          </div>
+          <a href="tel:+923007903061" class="btn-secondary" style="border-color: rgba(244, 63, 94, 0.4); color: #fda4af; text-decoration: none;">Dial Desk</a>
+        </div>
+      </div>
+
+      <!-- INSURANCE CHECKER CARD -->
+      <div class="card">
+        <div class="card-title">
+          <h2>🛡️ Stedi Insurance Eligibility Check (Test Mode)</h2>
+        </div>
+        <p class="card-subtitle">Check active patient copay & deductible before or during the consultation.</p>
+        
+        <form class="insurance-form" onsubmit="event.preventDefault(); runInsuranceCheck();">
+          <div>
+            <label style="font-size: 11px; color: var(--text-dim); display: block; margin-bottom: 4px;">PAYER</label>
+            <select id="insPayer">
+              <option value="Aetna">Aetna</option>
+              <option value="Cigna">Cigna</option>
+              <option value="UnitedHealthcare">UnitedHealthcare</option>
+              <option value="Medicare">Medicare</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 11px; color: var(--text-dim); display: block; margin-bottom: 4px;">MEMBER ID</label>
+            <input type="text" id="insMemberId" value="W123456789" placeholder="e.g. W123456789">
+          </div>
+          <div>
+            <label style="font-size: 11px; color: var(--text-dim); display: block; margin-bottom: 4px;">PATIENT NAME</label>
+            <input type="text" id="insName" value="John Doe" placeholder="Full Name">
+          </div>
+          <div style="align-self: flex-end;">
+            <button type="submit" class="btn-secondary" id="insBtn" style="height: 38px; background: rgba(6, 182, 212, 0.15); border-color: var(--accent-cyan); color: #67e8f9;">Verify</button>
+          </div>
+        </form>
+
+        <div id="insuranceResult" class="result-alert"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN: DOCTORS, SLOTS & APPOINTMENTS -->
+    <div>
+      
+      <!-- CLINIC SCHEDULE EXPLORER -->
+      <div class="card" style="margin-bottom: 24px;">
+        <div class="card-title">
+          <h2>👨‍⚕️ Medical Providers & Available Slots</h2>
+        </div>
+        <p class="card-subtitle">Select a doctor to view open 30-minute appointment slots.</p>
+
+        <div class="providers-grid">
+          <div class="provider-card selected" id="provSteve" onclick="selectProvider('Doctor Steve')">
+            <div class="provider-avatar">👨‍⚕️</div>
+            <div class="provider-info">
+              <h4>Doctor Steve</h4>
+              <p>Consultations, checkups, follow-ups</p>
+            </div>
+          </div>
+          <div class="provider-card" id="provMaha" onclick="selectProvider('Nurse Maha')">
+            <div class="provider-avatar">👩‍⚕️</div>
+            <div class="provider-info">
+              <h4>Nurse Maha</h4>
+              <p>Routine care, vaccines, injections</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="date-checker-row">
+          <input type="date" id="slotDatePicker">
+          <button class="btn-secondary" onclick="fetchSlots()">Check Slots</button>
+        </div>
+
+        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 8px;">Available 30-Min Openings:</div>
+        <div class="slots-grid" id="slotsContainer">
+          <div class="slot-pill">Loading slots...</div>
+        </div>
+      </div>
+
+      <!-- APPOINTMENTS REGISTRY -->
+      <div class="card">
+        <div class="card-title">
+          <h2>📅 Booked Appointments</h2>
+          <button class="btn-secondary" onclick="loadAppointments()" style="font-size: 11px; padding: 4px 10px;">↻ Refresh</button>
+        </div>
+        <p class="card-subtitle">Real-time registry recorded from voice calls.</p>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Patient</th>
+                <th>Provider</th>
+                <th>Date & Time</th>
+                <th>Reason</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="appointmentsTableBody">
+              <tr>
+                <td colspan="5" style="text-align: center; color: var(--text-dim); padding: 20px;">Loading appointments...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <div>
+      Hospital Voice Receptionist v2.2.0 &bull; Powered by FastAPI, Vapi AI & Retell AI
+    </div>
+    <div>
+      Vapi Assistant ID: <span style="font-family: monospace; color: var(--accent-cyan);">6fbc86a3-afe4-4ac7-8dce-b3584ef361fc</span>
+    </div>
+  </footer>
+</div>
+
+<script>
+  let activeProvider = "Doctor Steve";
+  let vapiInstance = null;
+  let isCallActive = false;
+
+  const VAPI_PUBLIC_KEY = "{{VAPI_PUBLIC_KEY}}";
+  const VAPI_ASSISTANT_ID = "{{VAPI_ASSISTANT_ID}}";
+
+  // Initialize Date Picker to Tomorrow (open day)
+  document.addEventListener("DOMContentLoaded", () => {
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const yyyy = tomorrow.getFullYear();
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const dd = String(tomorrow.getDate()).padStart(2, '0');
+    document.getElementById("slotDatePicker").value = `${yyyy}-${mm}-${dd}`;
+
+    initVapi();
+    fetchSlots();
+    loadAppointments();
+    startClock();
+  });
+
+  function initVapi() {
+    try {
+      if (window.Vapi && VAPI_PUBLIC_KEY) {
+        vapiInstance = new window.Vapi(VAPI_PUBLIC_KEY);
+
+        vapiInstance.on('call-start', () => {
+          isCallActive = true;
+          updateCallUI(true, "Call in progress... AI Receptionist listening.");
+          addTranscript("system", "Call connected with Hospital AI Voice Receptionist.");
+        });
+
+        vapiInstance.on('call-end', () => {
+          isCallActive = false;
+          updateCallUI(false, "Call ended. Ready for next call.");
+          addTranscript("system", "Call disconnected.");
+          loadAppointments(); // Refresh booked appointments
+        });
+
+        vapiInstance.on('speech-start', () => {
+          document.getElementById("callStateLabel").innerText = "Speaking...";
+        });
+
+        vapiInstance.on('speech-end', () => {
+          document.getElementById("callStateLabel").innerText = "Listening...";
+        });
+
+        vapiInstance.on('message', (message) => {
+          if (message.type === "transcript") {
+            const role = message.transcriptType === "final" ? message.role : null;
+            if (role && message.transcript) {
+              addTranscript(role === "user" ? "user" : "assistant", (role === "user" ? "You: " : "AI: ") + message.transcript);
+            }
+          }
+        });
+
+        vapiInstance.on('error', (err) => {
+          console.error("Vapi SDK error:", err);
+          updateCallUI(false, "Microphone ready. (Error during connection)");
+        });
+      }
+    } catch (err) {
+      console.warn("Vapi Web SDK initialization:", err);
+    }
+  }
+
+  function toggleCall() {
+    if (!vapiInstance) {
+      alert("Vapi Web SDK is initializing or not available. Please verify network access.");
+      return;
+    }
+
+    if (!isCallActive) {
+      updateCallUI(true, "Connecting to Vapi Assistant...");
+      vapiInstance.start(VAPI_ASSISTANT_ID);
+    } else {
+      vapiInstance.stop();
+      updateCallUI(false, "Ending call...");
+    }
+  }
+
+  function updateCallUI(active, labelText) {
+    const orb = document.getElementById("voiceOrb");
+    const btn = document.getElementById("callBtn");
+    const label = document.getElementById("callStateLabel");
+
+    if (active) {
+      orb.classList.add("active");
+      orb.innerText = "🛑";
+      btn.classList.add("stop");
+      btn.innerHTML = "<span>End Call</span>";
+    } else {
+      orb.classList.remove("active");
+      orb.innerText = "🎙️";
+      btn.classList.remove("stop");
+      btn.innerHTML = "<span>Start Voice Call</span>";
+    }
+    label.innerText = labelText;
+  }
+
+  function addTranscript(sender, text) {
+    const box = document.getElementById("transcriptBox");
+    const item = document.createElement("div");
+    item.className = `transcript-item ${sender}`;
+    item.innerText = text;
+    box.appendChild(item);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function clearTranscript() {
+    document.getElementById("transcriptBox").innerHTML = '<div class="transcript-item system">Transcript cleared.</div>';
+  }
+
+  function selectProvider(name) {
+    activeProvider = name;
+    document.getElementById("provSteve").classList.toggle("selected", name === "Doctor Steve");
+    document.getElementById("provMaha").classList.toggle("selected", name === "Nurse Maha");
+    fetchSlots();
+  }
+
+  async function fetchSlots() {
+    const date = document.getElementById("slotDatePicker").value;
+    const container = document.getElementById("slotsContainer");
+    container.innerHTML = '<div style="color: var(--text-dim); font-size: 12px;">Checking availability...</div>';
+
+    try {
+      const resp = await fetch(`/api/availability?provider=${encodeURIComponent(activeProvider)}&date=${encodeURIComponent(date)}`);
+      const data = await resp.json();
+      
+      if (data.status === "available" && data.available_slots && data.available_slots.length > 0) {
+        container.innerHTML = data.available_slots.map(s => `<div class="slot-pill">${s}</div>`).join("");
+      } else {
+        container.innerHTML = `<div style="color: var(--accent-amber); font-size: 12px; grid-column: 1/-1;">${data.message || 'No slots available on this date.'}</div>`;
+      }
+    } catch (e) {
+      container.innerHTML = '<div style="color: var(--accent-rose); font-size: 12px;">Error checking slots.</div>';
+    }
+  }
+
+  async function loadAppointments() {
+    const tbody = document.getElementById("appointmentsTableBody");
+    try {
+      const resp = await fetch('/api/appointments');
+      const appointments = await resp.json();
+
+      if (!appointments || appointments.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-dim); padding: 20px;">No appointments booked yet.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = appointments.map(apt => `
+        <tr>
+          <td><strong>${apt.patient_name || 'Anonymous'}</strong><br><span style="font-size: 11px; color: var(--text-dim);">${apt.phone || ''}</span></td>
+          <td>${apt.provider}</td>
+          <td>${apt.date} &bull; <span style="font-family: monospace; color: #38bdf8;">${apt.time}</span></td>
+          <td>${apt.reason || 'General'}</td>
+          <td><span class="badge-confirmed">Confirmed</span></td>
+        </tr>
+      `).join("");
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--accent-rose);">Error loading appointments.</td></tr>';
+    }
+  }
+
+  async function runInsuranceCheck() {
+    const payer = document.getElementById("insPayer").value;
+    const memberId = document.getElementById("insMemberId").value;
+    const name = document.getElementById("insName").value;
+    const btn = document.getElementById("insBtn");
+    const resultDiv = document.getElementById("insuranceResult");
+
+    btn.disabled = true;
+    btn.innerText = "Checking...";
+    resultDiv.className = "result-alert";
+    resultDiv.style.display = "none";
+
+    try {
+      const resp = await fetch('/api/check-insurance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payer, member_id: memberId, patient_name: name })
+      });
+      const data = await resp.json();
+
+      resultDiv.style.display = "block";
+      if (data.status === "active") {
+        resultDiv.className = "result-alert success";
+        resultDiv.innerHTML = `<strong>Coverage Active!</strong> Payer: ${payer} | Copay: $${data.copay} | Remaining Deductible: $${data.deductible}`;
+      } else {
+        resultDiv.className = "result-alert error";
+        resultDiv.innerHTML = `<strong>Notice:</strong> ${data.message || 'Could not verify eligibility. Transferring to front desk.'}`;
+      }
+    } catch (e) {
+      resultDiv.className = "result-alert error";
+      resultDiv.style.display = "block";
+      resultDiv.innerText = "Network error connecting to insurance verification API.";
+    } finally {
+      btn.disabled = false;
+      btn.innerText = "Verify";
+    }
+  }
+
+  function startClock() {
+    setInterval(() => {
+      const d = new Date();
+      const options = { timeZone: 'Asia/Karachi', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
+      document.getElementById("timezoneClock").innerText = `${d.toLocaleTimeString('en-US', options)} PKT`;
+    }, 1000);
+  }
+</script>
+
+</body>
+</html>
