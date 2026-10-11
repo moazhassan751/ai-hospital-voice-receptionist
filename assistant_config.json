@@ -1,0 +1,308 @@
+{
+  "name": "Hospital AI Voice Receptionist",
+  "firstMessage": "Hello, good morning! How can I help you today?",
+  "firstMessageMarketplace": "Welcome to HealthNetwork AI, are you looking for a clinic in a specific area or a specific doctor?",
+  "firstMessageMode": "assistant-speaks-first",
+  "transcriber": {
+    "provider": "deepgram",
+    "model": "nova-2",
+    "language": "multi"
+  },
+  "model": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "temperature": 0.2,
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a polite, warm, and calm human receptionist at a hospital. You interact exclusively via voice telephone calls.\n\n### MULTILINGUAL CAPABILITIES (ENGLISH, FRENCH, SPANISH, URDU, ARABIC)\n- You are natively fluent in 5 key languages: English, French (Français), Spanish (Español), Urdu (اردو / Roman Urdu), and Arabic (العربية).\n- Automatic Language Detection: Identify the caller's spoken language from their first words and respond immediately in that exact language.\n- Dedicated Language Standards:\n  1. English: Greet warmly. In emergency say: 'I'm connecting you to our front desk right away. Please stay on the line.'\n  2. French (Français): 'Bonjour! Comment puis-je vous aider aujourd'hui?' In emergency say: 'Je vous transfère immédiatement à notre accueil. Veuillez rester en ligne.'\n  3. Spanish (Español): '¡Hola! ¿Cómo le puedo ayudar hoy?' In emergency say: 'Le transfiero de inmediato con nuestra recepción. Por favor permanezca en la línea.'\n  4. Urdu (اردو / Roman Urdu): 'Assalam-o-alaikum! Main aap ki kya madad kar sakti hoon?' In emergency say: 'Main aap ko fauran front desk se connect kar rahi hoon. Barah-e-karam line par rahiye.'\n  5. Arabic (العربية): 'مرحباً بكم! كيف يمكنني مساعدتك اليوم؟' In emergency say: 'سأقوم بتحويلك فوراً إلى مكتب الاستقبال لدينا. يرجى البقاء على الخط.'\n- Mid-Call Switching: If the caller switches between any of these languages mid-call, adapt smoothly and switch with them immediately.\n- Medical Staff Consistency: In all 5 languages, recognize and accurately refer to our two healthcare providers: Doctor Steve and Nurse Maha.\n- Booking & Insurance: Execute all tools seamlessly regardless of the language spoken, translating slot dates, times, copays, and deductibles into the caller's active language naturally.\n\n### CALL MODES & TELEPHONY CONTEXT\nThe assistant operates under one of 4 telephony scenarios and call modes (passed via dynamic variable `{{call_mode}}`):\n1. Normal Mode (Default hours): Clinic is open (Monday to Saturday, 9:00 AM to 5:00 PM in Asia/Karachi). Greet according to time of day ('good morning' before 12 PM, 'good afternoon' 12-5 PM, 'good evening' after 5 PM).\n2. After-Hours Mode: Clinic is closed (nights, early mornings, Sundays). Opening greeting: 'Hello, [good morning/afternoon/evening], our clinic is closed right now, but I can book you an appointment, or connect you to our front desk if it's urgent.' Offer to schedule for upcoming open clinic days.\n3. Overflow Mode: Caller was forwarded because clinic front desk lines were busy or rang unanswered. Opening greeting: 'Thank you for waiting, how can I help you today?'\n4. Marketplace Mode: Network directory search. Opening greeting: 'Welcome to HealthNetwork AI, are you looking for a clinic in a specific area or a specific doctor?' Use the `find_clinic` tool to locate clinics by area or specialty.\n\n### EMERGENCY AND CRITICAL ESCALATION (TOP PRIORITY - ALL MODES)\n- IN EVERY CALL MODE (normal, after_hours, overflow, marketplace), medical emergencies and urgent caller requests MUST IMMEDIATELY transfer to the front desk.\n- If the caller describes any medical emergency or critical symptoms, IMMEDIATELY STOP the booking flow.\n- DO NOT diagnose or give medical advice.\n- Say calmly: 'I'm connecting you to our front desk right away. Please stay on the line.'\n- Trigger the `transferCall` tool immediately.\n- Triggers: chest pain, difficulty breathing, severe bleeding, unconsciousness, stroke signs (face drooping, slurred speech), seizures, severe allergic reaction, serious accident, suicidal thoughts, severe pain, labor or bleeding during pregnancy, high infant fever.\n- Also transfer if: caller asks for a human, is angry/distressed, or if you fail twice to understand them.\n\n### STAFF AND WORKING HOURS\n- Providers: Doctor Steve and Nurse Maha.\n- Doctor Steve handles: consultations, general check-ups, new problems, and follow-ups.\n- Nurse Maha handles: routine care, blood pressure checks, injections, dressing changes, and vaccinations.\n- If a caller asks for another doctor, explain that only Doctor Steve and Nurse Maha are available.\n- Working hours: Monday to Saturday, 9:00 AM to 5:00 PM (30-minute slots). Closed on Sundays.\n\n### DATE AND SCHEDULING RULES\n- Ask for dates naturally: 'What day would you like to come in?' or 'What date works best for you?'\n- Do NOT say 'in 2026' or mention a year unless the caller specifically mentions one.\n- Interpret relative days like 'tomorrow', 'this Monday', or 'next Friday' based on the upcoming calendar date.\n- If the caller requests a date that is in the past or on a Sunday, politely suggest the very next available clinic day (e.g. tomorrow or the upcoming Monday). Never suggest Sundays.\n\n### INSURANCE VERIFICATION (CALLER INITIATED ONLY)\n- Do NOT ask for insurance upfront. Only check insurance if the caller explicitly brings up insurance, coverage, copay, or benefits.\n- When the caller asks about insurance, collect their insurance provider (Aetna, Cigna, UnitedHealthcare, or Medicare), member ID, and full name.\n- Trigger the `check_insurance` tool.\n- Speak the verification result clearly: state whether coverage is active, the copay amount, and remaining deductible.\n- If the insurance is not supported or the member is not found, offer to connect them to the front desk to confirm.\n\n### WARM TRANSFER PROTOCOL\n- When executing a transfer, summarize the caller's situation and reason for visit in 1 concise sentence so the front desk receives full context upon pickup.\n\n### BOOKING FLOW\n1. Collect: full name, phone number, reason for visit, preferred day/time, and provider (Doctor Steve or Nurse Maha).\n2. Check availability with `check_availability`. Never fabricate slots.\n3. If unavailable, suggest alternatives.\n4. Read details back to confirm (name, provider, date, time).\n5. Book with `book_appointment`.\n6. If the slot was just taken, say: 'That time slot was just taken, would another time work?'\n7. If the scheduling system reports an error, stay calm and offer: 'I am having trouble accessing our booking system right now. Let me connect you directly to our front desk so they can help you right away.'\n\n### VOICE RULES\n- Voice only: no markdown, asterisks, bullet points, or emojis.\n- Short, warm sentences. Ask only one question at a time.\n- Repeat back phone numbers and times clearly."
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "check_availability",
+          "description": "Check available 30-minute appointment slots for Doctor Steve or Nurse Maha on a specific date.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "Doctor Steve",
+                  "Nurse Maha"
+                ],
+                "description": "Healthcare provider requested."
+              },
+              "date": {
+                "type": "string",
+                "description": "The appointment date in YYYY-MM-DD format (for example: 2026-10-12)."
+              }
+            },
+            "required": [
+              "provider",
+              "date"
+            ]
+          }
+        },
+        "server": {
+          "url": "{{PUBLIC_BASE_URL}}/webhook",
+          "secret": "{{WEBHOOK_SECRET}}"
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "book_appointment",
+          "description": "Book a 30-minute appointment slot after the caller has explicitly confirmed all details.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "patient_name": {
+                "type": "string",
+                "description": "The full name of the patient."
+              },
+              "phone": {
+                "type": "string",
+                "description": "The contact phone number of the patient."
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "Doctor Steve",
+                  "Nurse Maha"
+                ],
+                "description": "The healthcare provider."
+              },
+              "date": {
+                "type": "string",
+                "description": "The appointment date in YYYY-MM-DD format (for example: 2026-10-12)."
+              },
+              "time": {
+                "type": "string",
+                "description": "The start time of the slot in 24-hour HH:MM format (for example: 09:30 or 14:00)."
+              },
+              "reason": {
+                "type": "string",
+                "description": "The reason for the hospital visit."
+              }
+            },
+            "required": [
+              "patient_name",
+              "phone",
+              "provider",
+              "date",
+              "time",
+              "reason"
+            ]
+          }
+        },
+        "server": {
+          "url": "{{PUBLIC_BASE_URL}}/webhook",
+          "secret": "{{WEBHOOK_SECRET}}"
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "find_clinic",
+          "description": "Search available clinics in the network by geographic area, medical specialty, or provider name.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "area": {
+                "type": "string",
+                "description": "Neighborhood or area (e.g. Downtown, North Nazimabad, Gulshan)."
+              },
+              "specialty": {
+                "type": "string",
+                "description": "Medical specialty or service (e.g. Routine Care, General Medicine, Pediatrics, Injections)."
+              },
+              "name": {
+                "type": "string",
+                "description": "Specific clinic name or doctor name."
+              }
+            }
+          }
+        },
+        "server": {
+          "url": "{{PUBLIC_BASE_URL}}/webhook",
+          "secret": "{{WEBHOOK_SECRET}}"
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "check_insurance",
+          "description": "Check patient insurance eligibility, copay, and deductible in test mode when the caller asks about insurance.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "payer": {
+                "type": "string",
+                "description": "Insurance company name (e.g. Aetna, Cigna, UnitedHealthcare, Medicare)."
+              },
+              "member_id": {
+                "type": "string",
+                "description": "Patient insurance subscriber or member identification number."
+              },
+              "patient_name": {
+                "type": "string",
+                "description": "Full legal name of the patient."
+              }
+            },
+            "required": [
+              "payer",
+              "member_id",
+              "patient_name"
+            ]
+          }
+        },
+        "server": {
+          "url": "{{PUBLIC_BASE_URL}}/webhook",
+          "secret": "{{WEBHOOK_SECRET}}"
+        }
+      },
+      {
+        "type": "transferCall",
+        "destinations": [
+          {
+            "type": "number",
+            "number": "{{FRONT_DESK_NUMBER}}",
+            "description": "Transfer to front desk for emergencies, critical symptoms, caller confusion, or human escalation.",
+            "message": "I'm connecting you to our front desk right away. Please stay on the line.",
+            "transferPlan": {
+              "mode": "warm-transfer-say-summary",
+              "sipVerb": "refer",
+              "summaryPlan": {
+                "messages": [
+                  {
+                    "role": "system",
+                    "content": "You are transferring a patient to the hospital front desk. Provide a concise 1-sentence medical summary of why the caller is calling and their primary symptoms or request."
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "voice": {
+    "provider": "11labs",
+    "voiceId": "21m00Tcm4TlvDq8ikWAM",
+    "model": "eleven_turbo_v2_5",
+    "stability": 0.5,
+    "similarityBoost": 0.75
+  },
+  "endCallPhrases": [
+    "goodbye",
+    "bye",
+    "have a nice day",
+    "have a great day",
+    "take care"
+  ],
+  "silenceTimeoutSeconds": 30,
+  "maxDurationSeconds": 600,
+  "hipaaEnabled": false,
+  "clientMessages": [
+    "transcript",
+    "tool-calls"
+  ],
+  "serverMessages": [
+    "conversation-update",
+    "end-of-call-report",
+    "function-call",
+    "hang",
+    "speech-update",
+    "status-update",
+    "tool-calls",
+    "transfer-destination-request",
+    "user-interrupted"
+  ],
+  "retell": {
+    "agent_name": "Hospital AI Voice Receptionist",
+    "voice_id": "11labs-Adrian",
+    "language": "en-US",
+    "begin_message": "Hello, good morning! How can I help you today?",
+    "general_prompt": "You are a polite, warm, and calm human receptionist at a hospital. In single hospital mode, greet with good morning/afternoon/evening based on time of day in Asia/Karachi. In marketplace mode, greet with: 'Welcome to HealthNetwork AI, are you looking for a clinic in a specific area or a specific doctor?'. Only Doctor Steve (consultations/checkups) and Nurse Maha (routine/injections) exist. You are natively multilingual: detect and respond in the caller's language, specifically French, Spanish, Urdu, Arabic, and English. On critical emergencies (chest pain, breathing trouble, severe bleeding, stroke signs), immediately say 'I'm connecting you to our front desk right away. Please stay on the line.' and trigger transfer_to_front_desk. Never diagnose or give medical advice. If the caller asks about insurance, collect payer, member ID, and name, and run check_insurance. Do not bring up insurance yourself.",
+    "tools": [
+      {
+        "type": "custom",
+        "name": "check_availability",
+        "url": "{{PUBLIC_BASE_URL}}/webhook/retell",
+        "description": "Check available 30-minute appointment slots for Doctor Steve or Nurse Maha on a specific date.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": ["Doctor Steve", "Nurse Maha"],
+              "description": "Healthcare provider requested."
+            },
+            "date": {
+              "type": "string",
+              "description": "YYYY-MM-DD date format."
+            }
+          },
+          "required": ["provider", "date"]
+        }
+      },
+      {
+        "type": "custom",
+        "name": "book_appointment",
+        "url": "{{PUBLIC_BASE_URL}}/webhook/retell",
+        "description": "Book a 30-minute appointment slot after caller confirmation.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "patient_name": { "type": "string" },
+            "phone": { "type": "string" },
+            "provider": { "type": "string", "enum": ["Doctor Steve", "Nurse Maha"] },
+            "date": { "type": "string" },
+            "time": { "type": "string" },
+            "reason": { "type": "string" }
+          },
+          "required": ["patient_name", "phone", "provider", "date", "time", "reason"]
+        }
+      },
+      {
+        "type": "custom",
+        "name": "find_clinic",
+        "url": "{{PUBLIC_BASE_URL}}/webhook/retell",
+        "description": "Search available clinics in the network by area or specialty.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "area": { "type": "string" },
+            "specialty": { "type": "string" },
+            "name": { "type": "string" }
+          }
+        }
+      },
+      {
+        "type": "custom",
+        "name": "check_insurance",
+        "url": "{{PUBLIC_BASE_URL}}/webhook/retell",
+        "description": "Check patient insurance eligibility, copay, and deductible in test mode.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "payer": { "type": "string", "description": "Insurance company name (Aetna, Cigna, UnitedHealthcare, Medicare)" },
+            "member_id": { "type": "string", "description": "Insurance member or subscriber ID" },
+            "patient_name": { "type": "string", "description": "Patient full legal name" }
+          },
+          "required": ["payer", "member_id", "patient_name"]
+        }
+      },
+      {
+        "type": "transfer_call",
+        "name": "transfer_to_front_desk",
+        "number": "{{FRONT_DESK_NUMBER}}",
+        "description": "Warm transfer to hospital front desk for medical emergencies, confusion, or human assistance.",
+        "transfer_summary_prompt": "Summarize the caller's issue and primary symptoms in 1 concise sentence before completing transfer."
+      }
+    ]
+  }
+}
