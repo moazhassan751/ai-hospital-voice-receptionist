@@ -1,0 +1,182 @@
+{
+  "uuid": "a7b8c9d0-1111-2222-3333-444455556666",
+  "lastMigration": 32,
+  "name": "Clinic Mock API",
+  "endpointPrefix": "",
+  "latency": 0,
+  "port": 3001,
+  "hostname": "0.0.0.0",
+  "folders": [],
+  "routes": [
+    {
+      "uuid": "route-book-appointment",
+      "type": "http",
+      "documentation": "Book an appointment. Switch active response between 200, 404, and 500 in Mockoon to test different scenarios.",
+      "method": "post",
+      "endpoint": "book",
+      "responses": [
+        {
+          "uuid": "resp-book-200-success",
+          "body": "{\n  \"status\": \"confirmed\",\n  \"appointment_id\": \"98765\"\n}",
+          "latency": 0,
+          "statusCode": 200,
+          "label": "200 Confirmed (Default)",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "bodyType": "INLINE",
+          "default": true
+        },
+        {
+          "uuid": "resp-book-404-taken",
+          "body": "{\n  \"error\": \"slot_unavailable\",\n  \"message\": \"That time slot is no longer available\"\n}",
+          "latency": 0,
+          "statusCode": 404,
+          "label": "404 Slot Unavailable",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "bodyType": "INLINE",
+          "default": false
+        },
+        {
+          "uuid": "resp-book-500-error",
+          "body": "{\n  \"error\": \"internal_server_error\",\n  \"message\": \"Hospital database unavailable\"\n}",
+          "latency": 0,
+          "statusCode": 500,
+          "label": "500 Server Error",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "bodyType": "INLINE",
+          "default": false
+        }
+      ]
+    },
+    {
+      "uuid": "route-check-availability",
+      "type": "http",
+      "documentation": "Check available doctor or nurse appointment slots",
+      "method": "get",
+      "endpoint": "availability",
+      "responses": [
+        {
+          "uuid": "resp-avail-200-success",
+          "body": "{\n  \"status\": \"available\",\n  \"provider\": \"Doctor Steve\",\n  \"date\": \"2026-10-12\",\n  \"available_slots\": [\n    \"09:00\",\n    \"09:30\",\n    \"10:00\",\n    \"10:30\",\n    \"11:00\",\n    \"14:00\",\n    \"14:30\"\n  ],\n  \"message\": \"Available slots for Doctor Steve include: 9:00 AM, 9:30 AM, 10:00 AM, 10:30 AM, 11:00 AM, 2:00 PM, and 2:30 PM. What time works best for you?\"\n}",
+          "latency": 0,
+          "statusCode": 200,
+          "label": "200 Available Slots (Default)",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "bodyType": "INLINE",
+          "default": true
+        },
+        {
+          "uuid": "resp-avail-404-none",
+          "body": "{\n  \"error\": \"no_slots_available\",\n  \"message\": \"No slots available for the requested date\"\n}",
+          "latency": 0,
+          "statusCode": 404,
+          "label": "404 Slot Unavailable",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "bodyType": "INLINE",
+          "default": false
+        },
+        {
+          "uuid": "resp-avail-500-fail",
+          "body": "{\n  \"error\": \"internal_server_error\",\n  \"message\": \"Calendar synchronization failure\"\n}",
+          "latency": 0,
+          "statusCode": 500,
+          "label": "500 Server Error",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "bodyType": "INLINE",
+          "default": false
+        }
+      ]
+    },
+    {
+      "uuid": "route-direct-404",
+      "type": "http",
+      "documentation": "Dedicated 404 endpoint for testing slot collision without toggling",
+      "method": "all",
+      "endpoint": "slot-unavailable-404",
+      "responses": [
+        {
+          "uuid": "resp-direct-404",
+          "body": "{\n  \"error\": \"slot_unavailable\",\n  \"message\": \"Slot taken\"\n}",
+          "statusCode": 404,
+          "label": "Direct 404",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "default": true
+        }
+      ]
+    },
+    {
+      "uuid": "route-direct-500",
+      "type": "http",
+      "documentation": "Dedicated 500 endpoint for testing server crash / front desk fallback",
+      "method": "all",
+      "endpoint": "server-error-500",
+      "responses": [
+        {
+          "uuid": "resp-direct-500",
+          "body": "{\n  \"error\": \"server_error\",\n  \"message\": \"Internal Server Error\"\n}",
+          "statusCode": 500,
+          "label": "Direct 500",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "default": true
+        }
+      ]
+    }
+  ],
+  "rootChildren": [
+    {
+      "type": "route",
+      "uuid": "route-book-appointment"
+    },
+    {
+      "type": "route",
+      "checkAvailability": "route-check-availability"
+    },
+    {
+      "type": "route",
+      "uuid": "route-direct-404"
+    },
+    {
+      "type": "route",
+      "uuid": "route-direct-500"
+    }
+  ]
+}
