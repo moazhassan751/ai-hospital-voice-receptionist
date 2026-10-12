@@ -30,13 +30,16 @@ hospital-voice-agent/
 ├── server.py                # FastAPI webhook backend (Vapi and Retell + Local/Mock modes)
 ├── stedi_client.py          # Stedi healthcare insurance client (Test Mode Only)
 ├── try_stedi_mock.py        # Manual CLI test runner for Stedi mock eligibility checks
+├── show_patient.py          # Inspect a patient intake record by reference ID
+├── delete_patient.py        # Remove a patient record across all data stores
 ├── setup_telephony.py       # Automated CLI provisioning tool for Vapi, PBX, and BYOC
-├── test_server.py           # Automated test suite (11 test suites verifying all flows)
+├── test_server.py           # Automated test suite (12 test suites verifying all flows)
 ├── LIVE_TESTING.md          # Manual testing checklist and step-by-step runbook
 ├── assistant_config.json    # Complete Vapi and Retell assistant definitions and schemas
 ├── mockoon_clinic.json      # Mockoon environment export (200, 404, and 500 routes)
 ├── data.json                # Sample clinics directory and appointment records
 ├── appointments.json        # Flat JSON appointment database (synchronized)
+├── patients.json            # Patient records database (full intake records, gitignored)
 ├── requirements.txt         # Dependencies (fastapi, uvicorn, python-dotenv, httpx, tzdata)
 ├── .env.example             # Template for ports, modes, secrets, and carrier credentials
 ├── PROGRESS.md              # Living implementation progress tracker
@@ -216,16 +219,21 @@ The integration includes real-time mock eligibility checking through Stedi Test 
 
 ### 2. What Patient Data is Stored
 - The backend stores appointments in flat JSON files: `appointments.json` and `data.json`.
-- Each record contains: `appointment_id`, `patient_name`, `phone`, `provider`, `date`, `time`, `reason`, and `created_at`.
-- Full insurance member IDs are NEVER stored in files or logged to the console. All member IDs are masked to preserve only the last 4 characters.
-- Webhook request logs automatically mask phone numbers to the last 4 digits (e.g. `***-***-7890`).
+- Each appointment record contains: `appointment_id`, `patient_name`, `phone`, `provider`, `date`, `time`, `reason`, and `created_at`.
+- Full patient intake records are stored in `patients.json` with appointment reference, full name, date of birth, phone, reason, provider, date, time, insurance payer, member ID, insurance status, coverage active, copay, deductible, Stedi check timestamp, creation timestamp, and call mode.
+- IMPORTANT PRIVACY WARNING: The saved patient record in `patients.json` keeps the full member ID because the clinic front desk needs it. Only fake test data is allowed until a proper privacy review is done. Never use real patient data with this demo.
+- Server logs and webhook request logs always mask phone numbers and member IDs, showing only the last 4 characters (e.g. `***-***-7890` and `******wcSu`).
 
-### 3. How to Delete Patient Data
-- To delete all stored appointments:
+### 3. How to View and Delete Patient Data
+- View a patient record:
+  - Run `python show_patient.py <appointment_reference>` (for example, `python show_patient.py APT-A1B2C3`).
+- Delete a single patient record:
+  - Run `python delete_patient.py <appointment_reference>`. This removes the record from `patients.json`, `appointments.json`, and `data.json` at the same time.
+- To delete all stored records:
   - Stop the server.
   - Reset `appointments.json` to an empty array: `[]`.
+  - Reset `patients.json` to an empty array: `[]`.
   - In `data.json`, set `"appointments": []`.
-  - Alternatively, run `python -c "import server; server.save_appointments([])"`.
 
 ### 4. Stedi Test Mode Must Never Receive Real PHI
 - Stedi test mode endpoints are strictly for testing and integration validation.

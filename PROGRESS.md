@@ -206,6 +206,17 @@ Configured via `CALL_MODE` in `.env` or resolved dynamically in `auto` mode:
 - [x] Automated test suite in `test_server.py` (Test 11 with mocked Stedi responses)
 - [x] Documentation of Stedi test mode limitations and PHI prohibition in `README.md`
 
+### Phase 10: Complete Patient Intake Flow and Voice Pace
+- [x] Provider name change: Nurse Maha active across all files, former nurse name eliminated
+- [x] Full patient intake flow: name, date of birth, phone, reason, provider, availability, insurance, readback, booking, close
+- [x] Speaking pace rules block added word for word to assistant configuration system prompts
+- [x] Voice pacing tuning: ElevenLabs voice speed 0.85, start speaking wait seconds 0.6, stop speaking voice seconds 0.3, backoff seconds 1.5
+- [x] Removal of "take care" from end call phrases to prevent early hangup on transfers
+- [x] Synchronized patient intake persistence in `patients.json` with per-call insurance memory cache
+- [x] Privacy safeguards: phone and member ID masking in all logs, test-data-only warnings in code and documentation
+- [x] Management utility scripts: `show_patient.py` and `delete_patient.py`
+- [x] Automated test suite 12 in `test_server.py`: happy path for Vapi and Retell, scope checks, timeout fallback, unverified insurance, self pay, missing date of birth, clinic name greeting, and log masking
+
 ---
 
 ## 5. Verification & Test Execution Results
@@ -293,8 +304,25 @@ STARTING COMPLETE TELEPHONY & BACKEND TEST SUITE
   [OK] Vapi Webhook check_insurance tool call verified
   [OK] Retell Webhook check_insurance tool call verified
 
+[Test 12] Full Patient Intake Flow (Happy Path, Edge Cases, Prompt & Masking)
+  [OK] 12a Vapi check_availability returned openings
+  [OK] 12a Vapi check_insurance (mocked 200) returned active coverage
+  [OK] 12a Vapi happy path: patients.json has complete record with copay $25 and deductible $500
+  [OK] 12b Retell check_availability confirmed
+  [OK] 12b Retell check_insurance (mocked 200) confirmed
+  [OK] 12b Retell happy path: patient record complete with cached insurance data
+  [OK] 12c Nurse Maha: routine booking works, complex consultation redirected to Doctor Steve
+  [OK] 12d Amber is no longer accepted as a provider
+  [OK] 12e Insurance not found: booking succeeded, insurance_status is 'unverified'
+  [OK] 12f Stedi timeout: booking succeeded, insurance_status is 'unverified'
+  [OK] 12g No insurance: insurance_status is 'self_pay'
+  [OK] 12h Missing date of birth: server asks for it clearly
+  [OK] 12i Greeting contains 'Neural Hub' in all four call modes
+  [OK] 12j System prompt has speaking pace block, Maha, no Amber
+  [OK] 12k Log masking: phone numbers and member IDs are properly masked
+
 ======================================================================
-ALL 11 TEST SUITES PASSED SUCCESSFULLY! (100% PASS RATE)
+ALL 12 TEST SUITES PASSED SUCCESSFULLY! (100% PASS RATE)
 ======================================================================
 ```
 
