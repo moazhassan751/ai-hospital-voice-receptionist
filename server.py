@@ -2,7 +2,7 @@
 AI Hospital Voice Receptionist - FastAPI Webhook Backend
 Handles Vapi and Retell tool-call webhooks for checking doctor/nurse availability,
 booking appointments, clinic marketplace search, warm transfers, dynamic greetings,
-and Stedi insurance eligibility verification in test mode.
+Stedi insurance eligibility verification in test mode, and full patient record saving.
 Supports 4 Telephony Call Modes: auto, normal, after_hours, overflow, and marketplace.
 """
 
@@ -45,6 +45,9 @@ if not logger.handlers:
 TIMEZONE_STR = os.getenv("TIMEZONE", "Asia/Karachi")
 CLINIC_TZ = ZoneInfo(TIMEZONE_STR)
 
+# Clinic name for greetings (configured via .env, defaults to "Neural Hub")
+CLINIC_NAME = os.getenv("CLINIC_NAME", "Neural Hub")
+
 # Mode configurations:
 # BACKEND_MODE: 'local' (JSON storage) or 'mock' (HTTP forwards to MOCK_URL)
 BACKEND_MODE = os.getenv("BACKEND_MODE", "local").lower()
@@ -70,6 +73,7 @@ VALID_PROVIDERS = {
 
 DATA_FILE = "data.json"
 APPOINTMENTS_FILE = "appointments.json"
+PATIENTS_FILE = os.getenv("PATIENTS_FILE", "patients.json")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 FRONT_DESK_NUMBER = os.getenv("FRONT_DESK_NUMBER", "+1234567890")
 
@@ -98,7 +102,7 @@ def print_startup_warnings() -> None:
 app = FastAPI(
     title="Hospital Voice Receptionist Webhook",
     description="Webhook backend for Vapi & Retell Voice Receptionist with slot checking, booking, marketplace, mock mode, and telephony call modes.",
-    version="2.2.0"
+    version="3.0.0"
 )
 
 app.add_middleware(
@@ -187,6 +191,30 @@ def get_scenario_label(active_mode: str, payload: Optional[Dict[str, Any]] = Non
 
 
 # ==============================================================================
+# INSURANCE RESULT CACHE (per call ID)
+# Stores the last check_insurance result for each call so book_appointment
+# can attach copay and deductible even if the model forgets to pass them.
+# ==============================================================================
+_insurance_cache: Dict[str, Dict[str, Any]] = {}
+
+
+def cache_insurance_result(call_id: str, result: Dict[str, Any]) -> None:
+    """Stores insurance check result in memory keyed by call ID."""
+    if call_id:
+        _insurance_cache[call_id] = result
+
+
+def get_cached_insurance(call_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves cached insurance result for a call ID, or None."""
+    return _insurance_cache.get(call_id)
+
+
+def clear_insurance_cache(call_id: str) -> None:
+    """Removes cached insurance result for a call ID."""
+    _insurance_cache.pop(call_id, None)
+
+
+# ==============================================================================
 # CALL MODE & DYNAMIC GREETING LOGIC
 # ==============================================================================
 def get_time_period_str(dt: datetime) -> str:
@@ -228,28 +256,32 @@ def get_active_call_mode(current_dt: Optional[datetime] = None, mode: Optional[s
 
 def get_dynamic_greeting(current_dt: Optional[datetime] = None, mode: Optional[str] = None) -> str:
     """
-    Computes the exact dynamic greeting per call:
-    - normal: 'Hello, [good morning/afternoon/evening]! How can I help you today?'
-    - after_hours: 'Hello, [good morning/afternoon/evening], our clinic is closed right now, but I can book you an appointment, or connect you to our front desk if it's urgent.'
-    - overflow: 'Thank you for waiting, how can I help you today?'
-    - marketplace: 'Welcome to HealthNetwork AI, are you looking for a clinic in a specific area or a specific doctor?'
+    Computes the exact dynamic greeting per call, using the clinic name from CLINIC_NAME.
+    - normal: 'Welcome to {CLINIC_NAME}. {Good morning/afternoon/evening}, how can I help you today?'
+    - after_hours: 'Welcome to {CLINIC_NAME}. {Good morning/afternoon/evening}, our clinic is closed right now, but I can book you an appointment, or connect you to our front desk if it is urgent.'
+    - overflow: 'Welcome to {CLINIC_NAME}. Thank you for waiting, how can I help you today?'
+    - marketplace: 'Welcome to {CLINIC_NAME}. Are you looking for a clinic in a specific area or a specific doctor?'
     """
     now = current_dt or datetime.now(CLINIC_TZ)
     resolved_mode = get_active_call_mode(now, mode=mode)
     period = get_time_period_str(now)
+    clinic = CLINIC_NAME
 
     if resolved_mode == "marketplace":
-        return "Welcome to HealthNetwork AI, are you looking for a clinic in a specific area or a specific doctor?"
+        return f"Welcome to {clinic}. Are you looking for a clinic in a specific area or a specific doctor?"
     elif resolved_mode == "overflow":
-        return "Thank you for waiting, how can I help you today?"
+        return f"Welcome to {clinic}. Thank you for waiting, how can I help you today?"
     elif resolved_mode == "after_hours":
-        return f"Hello, {period}, our clinic is closed right now, but I can book you an appointment, or connect you to our front desk if it's urgent."
+        return (
+            f"Welcome to {clinic}. {period.capitalize()}, our clinic is closed right now, "
+            "but I can book you an appointment, or connect you to our front desk if it is urgent."
+        )
     else:
-        return f"Hello, {period}! How can I help you today?"
+        return f"Welcome to {clinic}. {period.capitalize()}, how can I help you today?"
 
 
 # ==============================================================================
-# STORAGE HELPERS (Supports data.json and appointments.json)
+# STORAGE HELPERS (Supports data.json, appointments.json, and patients.json)
 # ==============================================================================
 def load_clinics() -> List[Dict[str, Any]]:
     """Loads sample clinics list from data.json for marketplace mode."""
@@ -294,35 +326,76 @@ def save_appointments(appointments: List[Dict[str, Any]]) -> None:
 
 
 # ==============================================================================
+# PATIENT RECORD STORAGE
+#
+# WARNING: patients.json stores full member IDs because the front desk needs
+# them. Only FAKE TEST DATA is allowed until a proper privacy review is done.
+# Do not store real patient data in this file without HIPAA compliance review,
+# encryption at rest, and a signed Business Associate Agreement with all vendors.
+# ==============================================================================
+def load_patients() -> List[Dict[str, Any]]:
+    """Loads all patient records from patients.json."""
+    if os.path.exists(PATIENTS_FILE):
+        try:
+            with open(PATIENTS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
+
+
+def save_patients(patients: List[Dict[str, Any]]) -> None:
+    """Saves patient records to patients.json."""
+    with open(PATIENTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(patients, f, indent=2, ensure_ascii=False)
+
+
+def save_patient_record(record: Dict[str, Any]) -> None:
+    """Appends a single patient record to patients.json."""
+    patients = load_patients()
+    patients.append(record)
+    save_patients(patients)
+
+
+# ==============================================================================
 # PROVIDER & DATE/TIME NORMALIZATION HELPERS
 # ==============================================================================
 def normalize_provider(name: str) -> Optional[str]:
     """
     Matches caller input to either 'Doctor Steve' or 'Nurse Maha'.
-    Supports English, Urdu (اردو / Roman Urdu), Arabic (العربية), French (Français), and Spanish (Español).
+    Supports English, Urdu, Arabic, French, and Spanish.
+    Only Doctor Steve and Nurse Maha are valid providers.
     """
     if not name:
         return None
     lower_name = name.strip().lower()
 
-    # Nurse Maha keywords across English, Urdu, Arabic, French, Spanish
-    nurse_keywords = [
-        "maha", "amber", "nurse", "nars", "نرس", "ماہا", "مها",
-        "infirmiere", "infirmière", "infirmier",
-        "enfermera", "enfermero",
-        "mumarrida", "mumarrid", "ممرضة", "ممرض"
+    # Maha specific name keywords across languages
+    maha_names = [
+        "maha", "\u0645\u0627\u06c1\u0627", "\u0645\u0647\u0627"
     ]
-    if any(k in lower_name for k in nurse_keywords):
+    # Generic nurse role terms
+    nurse_roles = [
+        "nurse", "the nurse", "nars", "\u0646\u0631\u0633",
+        "infirmiere", "infirmière", "infirmier", "l'infirmiere", "l'infirmière",
+        "enfermera", "enfermero", "la enfermera", "el enfermero",
+        "mumarrida", "mumarrid", "\u0645\u0645\u0631\u0636\u0629", "\u0645\u0645\u0631\u0636", "الممرضة"
+    ]
+    if any(m in lower_name for m in maha_names) or lower_name in nurse_roles:
         return "Nurse Maha"
 
-    # Doctor Steve keywords across English, Urdu, Arabic, French, Spanish
-    doctor_keywords = [
-        "steve", "doctor", "dr", "docteur", "medecin", "médecin",
-        "medico", "médico", "medica", "médica",
-        "daaktar", "ڈاکٹر", "اسٹیو",
-        "tabib", "tabeeb", "duktur", "طبيب", "دكتور", "ستيف"
+    # Steve specific name keywords across languages
+    steve_names = [
+        "steve", "\u0627\u0633\u0679\u06cc\u0648", "\u0627\u0633\u062a\u06cc\u0648", "\u0633\u062a\u064a\u0641"
     ]
-    if any(k in lower_name for k in doctor_keywords):
+    # Generic doctor role terms
+    doctor_roles = [
+        "doctor", "the doctor", "dr", "dr.", "docteur", "le docteur",
+        "medecin", "médecin", "medico", "médico", "medica", "médica",
+        "daaktar", "\u0688\u0627\u06a9\u0679\u0631", "tabib", "tabeeb", "duktur", "\u0637\u0628\u064a\u0628", "\u062f\u0643\u062a\u0648\u0631", "الطبيب"
+    ]
+    if any(s in lower_name for s in steve_names) or lower_name in doctor_roles:
         return "Doctor Steve"
 
     return None
@@ -504,6 +577,7 @@ def check_availability(provider: str, date: str) -> Dict[str, Any]:
 
 # ==============================================================================
 # TOOL 2: BOOK APPOINTMENT (Local + Mock Mode)
+# Now accepts optional insurance and patient fields, saves full patient record.
 # ==============================================================================
 def book_appointment(
     patient_name: str,
@@ -511,10 +585,18 @@ def book_appointment(
     provider: str,
     date: str,
     time: str,
-    reason: str = ""
+    reason: str = "",
+    date_of_birth: str = "",
+    insurance_payer: str = "",
+    member_id: str = "",
+    insurance_status: str = "",
+    copay: Optional[float] = None,
+    deductible: Optional[float] = None,
+    call_id: str = "",
+    call_mode: str = ""
 ) -> Dict[str, Any]:
     """
-    Books a 30-minute appointment.
+    Books a 30-minute appointment and saves a full patient record.
     In 'mock' mode: forwards POST request to MOCK_URL/book.
     On 404: returns slot collision message.
     On 500/network error: stays calm and offers front desk.
@@ -574,11 +656,11 @@ def book_appointment(
         consult_terms = (
             "consultation", "consult", "diagnose", "diagnosis", "chest pain", "second opinion", "severe", "sick", "illness",
             # Urdu terms
-            "طبیعت", "بیمار", "درد", "بخار", "کھانسی", "مشورہ", "چیک اپ",
+            "\u0637\u0628\u06cc\u0639\u062a", "\u0628\u06cc\u0645\u0627\u0631", "\u062f\u0631\u062f", "\u0628\u062e\u0627\u0631", "\u06a9\u06be\u0627\u0646\u0633\u06cc", "\u0645\u0634\u0648\u0631\u06c1", "\u0686\u06cc\u06a9 \u0627\u067e",
             # Arabic terms
-            "استشارة", "مريض", "ألم", "حمى", "سعال", "تشخيص", "فحص",
+            "\u0627\u0633\u062a\u0634\u0627\u0631\u0629", "\u0645\u0631\u064a\u0636", "\u0623\u0644\u0645", "\u062d\u0645\u0649", "\u0633\u0639\u0627\u0644", "\u062a\u0634\u062e\u064a\u0635", "\u0641\u062d\u0635",
             # French terms
-            "malade", "douleur", "fièvre", "fievre", "toux",
+            "malade", "douleur", "fi\u00e8vre", "fievre", "toux",
             # Spanish terms
             "enfermo", "fiebre", "tos"
         )
@@ -648,6 +730,46 @@ def book_appointment(
         }
 
     appointment_id = f"APT-{uuid.uuid4().hex[:6].upper()}"
+
+    # Try to fill in insurance details from the cache if the model did not pass them
+    effective_insurance_status = insurance_status
+    effective_payer = insurance_payer
+    effective_member_id = member_id
+    effective_copay = copay
+    effective_deductible = deductible
+    stedi_checked_at = ""
+    coverage_active = None
+
+    cached = get_cached_insurance(call_id) if call_id else None
+    if cached:
+        if not effective_payer:
+            effective_payer = cached.get("payer", "")
+        if not effective_member_id:
+            effective_member_id = cached.get("raw_member_id", "")
+        if not effective_insurance_status:
+            status_map = {
+                "active": "verified",
+                "inactive": "verified",
+                "not_found": "unverified",
+                "timeout": "unverified",
+                "error": "unverified",
+                "bad_key": "unverified",
+                "unsupported_payer": "unverified",
+            }
+            effective_insurance_status = status_map.get(cached.get("status", ""), "unverified")
+        if effective_copay is None and cached.get("copay") is not None:
+            effective_copay = cached.get("copay")
+        if effective_deductible is None and cached.get("deductible") is not None:
+            effective_deductible = cached.get("deductible")
+        if cached.get("status") == "active":
+            coverage_active = True
+        elif cached.get("status") in ("inactive", "not_found"):
+            coverage_active = False
+        stedi_checked_at = cached.get("checked_at", "")
+
+    if not effective_insurance_status:
+        effective_insurance_status = "self_pay"
+
     new_appointment = {
         "appointment_id": appointment_id,
         "patient_name": patient_name.strip(),
@@ -661,6 +783,28 @@ def book_appointment(
 
     appointments.append(new_appointment)
     save_appointments(appointments)
+
+    # Save full patient record to patients.json
+    patient_record = {
+        "appointment_reference": appointment_id,
+        "full_name": patient_name.strip(),
+        "date_of_birth": (date_of_birth or "").strip(),
+        "phone": phone.strip(),
+        "reason": (reason or "General consultation").strip(),
+        "provider": matched_provider,
+        "date": date_iso,
+        "time": normalized_time_24,
+        "insurance_payer": effective_payer,
+        "member_id": effective_member_id,
+        "insurance_status": effective_insurance_status,
+        "coverage_active": coverage_active,
+        "copay": effective_copay,
+        "deductible": effective_deductible,
+        "stedi_checked_at": stedi_checked_at,
+        "created_at": now_karachi.isoformat(),
+        "call_mode": call_mode or get_active_call_mode()
+    }
+    save_patient_record(patient_record)
 
     voice_time = format_time_voice(normalized_time_24)
     voice_date = parsed_date.strftime("%A, %B %d, %Y")
@@ -744,25 +888,51 @@ def prepare_warm_transfer(caller_issue: str) -> Dict[str, Any]:
 
 # ==============================================================================
 # TOOL 5: CHECK INSURANCE (Stedi Test Mode Mock Eligibility)
+# Now requires date_of_birth as a parameter and caches the result by call_id.
 # ==============================================================================
-def check_insurance(payer: str, member_id: str, patient_name: str) -> Dict[str, Any]:
+def check_insurance(
+    payer: str,
+    member_id: str,
+    patient_name: str,
+    date_of_birth: str = "",
+    call_id: str = ""
+) -> Dict[str, Any]:
     """
     Checks insurance eligibility via Stedi test mode mock API.
     Supports Aetna, Cigna, UnitedHealthcare, and CMS (Medicare).
     Never transmits real PHI. Masks member ID in all logs and outputs.
+    Requires date_of_birth for the Stedi request.
+    Caches the result keyed by call_id so book_appointment can use it.
     """
+    if not date_of_birth:
+        return {
+            "status": "error",
+            "message": "I need the patient's date of birth to check insurance. Could you please provide it?"
+        }
+
     from stedi_client import check_eligibility_mock
-    return check_eligibility_mock(
+    result = check_eligibility_mock(
         payer=payer,
         member_id=member_id,
-        patient_name=patient_name
+        patient_name=patient_name,
+        date_of_birth=date_of_birth
     )
+
+    # Attach raw member_id and timestamp for the cache
+    result["raw_member_id"] = member_id
+    result["checked_at"] = datetime.now(CLINIC_TZ).isoformat()
+
+    # Cache the result for this call so book_appointment can pick it up
+    if call_id:
+        cache_insurance_result(call_id, result)
+
+    return result
 
 
 # ==============================================================================
 # CENTRAL TOOL DISPATCHER (Shared between Vapi and Retell)
 # ==============================================================================
-def execute_tool(func_name: str, func_args: Dict[str, Any]) -> tuple[str, bool]:
+def execute_tool(func_name: str, func_args: Dict[str, Any], call_id: str = "") -> tuple[str, bool]:
     """
     Executes a requested tool by name and returns (result_text, is_error).
     Shared across both Vapi (/webhook) and Retell (/webhook/retell) endpoints.
@@ -775,13 +945,22 @@ def execute_tool(func_name: str, func_args: Dict[str, Any]) -> tuple[str, bool]:
             return out.get("message", json.dumps(out)), (out.get("status") == "error")
 
         elif func_name == "book_appointment":
+            active_mode = get_active_call_mode()
             out = book_appointment(
                 patient_name=func_args.get("patient_name", ""),
                 phone=func_args.get("phone", ""),
                 provider=func_args.get("provider", ""),
                 date=func_args.get("date", ""),
                 time=func_args.get("time", ""),
-                reason=func_args.get("reason", "")
+                reason=func_args.get("reason", ""),
+                date_of_birth=func_args.get("date_of_birth", ""),
+                insurance_payer=func_args.get("insurance_payer", ""),
+                member_id=func_args.get("member_id", ""),
+                insurance_status=func_args.get("insurance_status", ""),
+                copay=func_args.get("copay"),
+                deductible=func_args.get("deductible"),
+                call_id=call_id,
+                call_mode=active_mode
             )
             return out.get("message", json.dumps(out)), (out.get("status") == "error")
 
@@ -801,9 +980,16 @@ def execute_tool(func_name: str, func_args: Dict[str, Any]) -> tuple[str, bool]:
 
         elif func_name == "check_insurance":
             payer = func_args.get("payer", "")
-            member_id = func_args.get("member_id", "")
+            member_id_val = func_args.get("member_id", "")
             patient_name = func_args.get("patient_name", func_args.get("name", ""))
-            out = check_insurance(payer=payer, member_id=member_id, patient_name=patient_name)
+            dob = func_args.get("date_of_birth", "")
+            out = check_insurance(
+                payer=payer,
+                member_id=member_id_val,
+                patient_name=patient_name,
+                date_of_birth=dob,
+                call_id=call_id
+            )
             is_err = out.get("status") in ("error", "bad_key", "timeout")
             return out.get("message", json.dumps(out)), is_err
 
@@ -821,6 +1007,7 @@ class InsuranceCheckRequest(BaseModel):
     payer: str
     member_id: str
     patient_name: str
+    date_of_birth: str = ""
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -858,7 +1045,12 @@ def api_get_availability(provider: str = Query(...), date: str = Query(...)):
 @app.post("/api/check-insurance")
 def api_check_insurance(req: InsuranceCheckRequest):
     """Executes Stedi insurance eligibility verification."""
-    return check_insurance(payer=req.payer, member_id=req.member_id, patient_name=req.patient_name)
+    return check_insurance(
+        payer=req.payer,
+        member_id=req.member_id,
+        patient_name=req.patient_name,
+        date_of_birth=req.date_of_birth
+    )
 
 
 @app.get("/health")
@@ -879,7 +1071,8 @@ def health_check():
         "timezone": TIMEZONE_STR,
         "current_time": now_karachi.strftime("%Y-%m-%d %H:%M:%S %Z"),
         "greeting": greeting,
-        "working_hours": f"{START_HOUR}:00 to {END_HOUR}:00 (Mon-Sat)"
+        "working_hours": f"{START_HOUR}:00 to {END_HOUR}:00 (Mon-Sat)",
+        "clinic_name": CLINIC_NAME
     }
 
 
@@ -919,6 +1112,10 @@ async def vapi_webhook(
     logger.info(
         f"[Vapi Webhook] Event: {message_type} | Call Mode: {active_mode} | Telephony Scenario: {scenario}"
     )
+
+    # Extract call_id from payload for insurance caching
+    call_obj = message.get("call") or body.get("call") or {}
+    call_id = call_obj.get("id", "")
 
     # DYNAMIC PER-CALL GREETING VIA VAPI ASSISTANT-REQUEST
     if message_type == "assistant-request":
@@ -960,7 +1157,7 @@ async def vapi_webhook(
             f"[Vapi Tool Call] Tool: {func_name} | Args: {masked_args} | Mode: {active_mode} | Scenario: {scenario}"
         )
 
-        result_text, is_error = execute_tool(func_name, func_args)
+        result_text, is_error = execute_tool(func_name, func_args, call_id=call_id)
 
         logger.info(
             f"[Vapi Tool Result] Tool: {func_name} | Error: {is_error} | Result: {result_text}"
@@ -1005,6 +1202,9 @@ async def retell_webhook(
     active_mode = get_active_call_mode()
     scenario = get_scenario_label(active_mode, body)
 
+    # Extract call_id from Retell payload for insurance caching
+    call_id = body.get("call_id", "") or body.get("call", {}).get("id", "")
+
     func_name = (
         body.get("name")
         or body.get("tool_name")
@@ -1046,7 +1246,7 @@ async def retell_webhook(
         f"[Retell Tool Call] Tool: {func_name} | Args: {masked_args} | Mode: {active_mode} | Scenario: {scenario}"
     )
 
-    result_text, is_error = execute_tool(func_name, func_args)
+    result_text, is_error = execute_tool(func_name, func_args, call_id=call_id)
 
     logger.info(
         f"[Retell Tool Result] Tool: {func_name} | Error: {is_error} | Result: {result_text}"
@@ -1062,4 +1262,5 @@ async def retell_webhook(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=3000, reload=True)
+    server_port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("server:app", host="0.0.0.0", port=server_port, reload=True)
