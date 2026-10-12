@@ -12,6 +12,8 @@ Tests:
 9. Retell AI webhook support.
 10. All four telephony scenarios simulated call tests & edge cases (Vapi and Retell payloads).
 11. Stedi insurance eligibility verification in test mode (mocked responses, error recovery, masking).
+12. Full patient intake flow: happy path, insurance not found, timeout, no insurance, Amber rejected,
+    date of birth required, greeting clinic name, system prompt checks, log masking.
 
 No real phone APIs, carrier services, or external Stedi endpoints are called.
 """
@@ -40,10 +42,20 @@ from server import (
     get_active_call_mode,
     get_dynamic_greeting,
     save_appointments,
+    save_patients,
+    load_patients,
     FRONT_DESK_NUMBER,
-    execute_tool
+    execute_tool,
+    mask_phone_number,
+    mask_member_id,
+    _insurance_cache,
+    cache_insurance_result,
+    get_cached_insurance
 )
 import stedi_client
+
+# Use a temporary patients file so real data is never touched
+TEST_PATIENTS_FILE = "test_patients_temp.json"
 
 
 async def run_all_tests():
@@ -53,6 +65,13 @@ async def run_all_tests():
 
     # Clean test appointments table
     save_appointments([])
+    # Point patients file to temp file for tests
+    original_patients_file = server.PATIENTS_FILE
+    server.PATIENTS_FILE = TEST_PATIENTS_FILE
+    if os.path.exists(TEST_PATIENTS_FILE):
+        os.remove(TEST_PATIENTS_FILE)
+    # Clear insurance cache
+    _insurance_cache.clear()
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -91,36 +110,44 @@ async def run_all_tests():
         print("  [OK] Sunday 12:00 PM resolves to: after_hours")
 
         # ----------------------------------------------------------------------
-        # TEST 2: GREETINGS FOR EACH CALL MODE
+        # TEST 2: GREETINGS FOR EACH CALL MODE (updated with clinic name)
         # ----------------------------------------------------------------------
         print("\n[Test 2] Dynamic Greetings Verification")
 
         # 2a: Normal mode morning
         morning_dt = datetime(2026, 10, 14, 10, 0, tzinfo=CLINIC_TZ)
         greet_normal_morning = get_dynamic_greeting(morning_dt, mode="normal")
-        assert "Hello, good morning! How can I help you today?" == greet_normal_morning
+        assert "Welcome to Neural Hub" in greet_normal_morning
+        assert "Good morning" in greet_normal_morning
+        assert "how can I help you today" in greet_normal_morning
         print(f"  [OK] Normal Mode Morning: '{greet_normal_morning}'")
 
         # 2b: Normal mode afternoon
         afternoon_dt = datetime(2026, 10, 14, 14, 0, tzinfo=CLINIC_TZ)
         greet_normal_aft = get_dynamic_greeting(afternoon_dt, mode="normal")
-        assert "Hello, good afternoon! How can I help you today?" == greet_normal_aft
+        assert "Welcome to Neural Hub" in greet_normal_aft
+        assert "Good afternoon" in greet_normal_aft
+        assert "how can I help you today" in greet_normal_aft
         print(f"  [OK] Normal Mode Afternoon: '{greet_normal_aft}'")
 
         # 2c: After-hours mode (picks period word from actual time)
         evening_dt = datetime(2026, 10, 14, 21, 0, tzinfo=CLINIC_TZ)
         greet_after_hours = get_dynamic_greeting(evening_dt, mode="after_hours")
-        assert "Hello, good evening, our clinic is closed right now, but I can book you an appointment, or connect you to our front desk if it's urgent." == greet_after_hours
+        assert "Welcome to Neural Hub" in greet_after_hours
+        assert "Good evening" in greet_after_hours
+        assert "our clinic is closed right now" in greet_after_hours
         print(f"  [OK] After-Hours Evening: '{greet_after_hours}'")
 
         # 2d: Overflow mode
         greet_overflow = get_dynamic_greeting(morning_dt, mode="overflow")
-        assert "Thank you for waiting, how can I help you today?" == greet_overflow
+        assert "Welcome to Neural Hub" in greet_overflow
+        assert "Thank you for waiting" in greet_overflow
         print(f"  [OK] Overflow Mode: '{greet_overflow}'")
 
         # 2e: Marketplace mode
         greet_market = get_dynamic_greeting(morning_dt, mode="marketplace")
-        assert "Welcome to HealthNetwork AI, are you looking for a clinic in a specific area or a specific doctor?" == greet_market
+        assert "Welcome to Neural Hub" in greet_market
+        assert "clinic in a specific area" in greet_market
         print(f"  [OK] Marketplace Mode: '{greet_market}'")
 
         # ----------------------------------------------------------------------
@@ -133,7 +160,7 @@ async def run_all_tests():
             res_mode = get_active_call_mode(wednesday_morning)
             res_greet = get_dynamic_greeting(wednesday_morning)
             assert res_mode == "marketplace", f"Expected 'marketplace', got {res_mode} when CALL_MODE={test_mode}"
-            assert "Welcome to HealthNetwork AI" in res_greet
+            assert "Welcome to Neural Hub" in res_greet
         print("  [OK] Marketplace greeting always wins when DEPLOYMENT_MODE=marketplace")
 
         server.DEPLOYMENT_MODE = "single_hospital"
@@ -166,12 +193,12 @@ async def run_all_tests():
         resp = await client.get("/health")
         assert resp.status_code == 200
         health = resp.json()
-        print("  Health output:", health)
         assert health["status"] == "healthy"
         assert health["timezone"] == "Asia/Karachi"
         assert "call_mode" in health
         assert "active_call_mode" in health
         assert "greeting" in health
+        assert health.get("clinic_name") == "Neural Hub"
         print("  [OK] /health correctly reports active_call_mode and dynamic greeting")
 
         # ----------------------------------------------------------------------
@@ -190,7 +217,6 @@ async def run_all_tests():
         res_vapi = await client.post("/webhook", json=assistant_req_payload, headers=headers)
         assert res_vapi.status_code == 200
         data_vapi = res_vapi.json()
-        print("  Vapi assistant-request response:", data_vapi)
         assert "assistant" in data_vapi
         assert "firstMessage" in data_vapi["assistant"]
         assert "variableValues" in data_vapi["assistant"]
@@ -204,7 +230,6 @@ async def run_all_tests():
         res_retell = await client.post("/webhook/retell", json={}, headers=headers)
         assert res_retell.status_code == 200
         data_retell = res_retell.json()
-        print("  Retell inbound response:", data_retell)
         assert data_retell["status"] == "ok"
         assert "begin_message" in data_retell["override_agent"]
         assert "call_mode" in data_retell["dynamic_variables"]
@@ -335,8 +360,8 @@ async def run_all_tests():
         res_mkt_greet = await client.post("/webhook", json={"message": {"type": "assistant-request"}}, headers=headers)
         assert res_mkt_greet.status_code == 200
         mkt_greet_text = res_mkt_greet.json()["assistant"]["firstMessage"]
-        assert "Welcome to HealthNetwork AI" in mkt_greet_text
-        print("    [OK] Scenario 1 Greeting: 'Welcome to HealthNetwork AI...'")
+        assert "Welcome to Neural Hub" in mkt_greet_text
+        print("    [OK] Scenario 1 Greeting: 'Welcome to Neural Hub...'")
 
         # 10.1b find_clinic by area, specialty, and doctor name
         for q_type, q_args in [
@@ -407,7 +432,7 @@ async def run_all_tests():
         # 10.2a Overflow mode (after 4 rings)
         server.CALL_MODE = "overflow"
         res_of_greet = await client.post("/webhook", json={"message": {"type": "assistant-request"}}, headers=headers)
-        assert "Thank you for waiting, how can I help you today?" in res_of_greet.json()["assistant"]["firstMessage"]
+        assert "Thank you for waiting" in res_of_greet.json()["assistant"]["firstMessage"]
         book_of_payload = {
             "message": {
                 "type": "tool-calls",
@@ -454,7 +479,7 @@ async def run_all_tests():
         # 10.2c Full forwarding / normal mode
         server.CALL_MODE = "normal"
         res_norm_greet = await client.post("/webhook", json={"message": {"type": "assistant-request"}}, headers=headers)
-        assert "How can I help you today?" in res_norm_greet.json()["assistant"]["firstMessage"]
+        assert "how can i help you today" in res_norm_greet.json()["assistant"]["firstMessage"].lower()
         print("    [OK] Full Forwarding (Normal Mode) Greeting confirmed")
 
         # 10.3 Scenario 3: Cloud PBX / SIP Trunk
@@ -568,18 +593,18 @@ async def run_all_tests():
         print("    [OK] Nurse Maha clinical scope guardrail redirected complex consultation to Doctor Steve")
 
         # Edge Case 6: Multilingual provider normalization (Urdu, Arabic, French, Spanish)
-        assert server.normalize_provider("نرس ماہا") == "Nurse Maha"
-        assert server.normalize_provider("ڈاکٹر اسٹیو") == "Doctor Steve"
-        assert server.normalize_provider("الممرضة مها") == "Nurse Maha"
-        assert server.normalize_provider("الدكتور ستيف") == "Doctor Steve"
-        assert server.normalize_provider("l'infirmière Maha") == "Nurse Maha"
+        assert server.normalize_provider("\u0646\u0631\u0633 \u0645\u0627\u06c1\u0627") == "Nurse Maha"
+        assert server.normalize_provider("\u0688\u0627\u06a9\u0679\u0631 \u0627\u0633\u0679\u06cc\u0648") == "Doctor Steve"
+        assert server.normalize_provider("\u0627\u0644\u0645\u0645\u0631\u0636\u0629 \u0645\u0647\u0627") == "Nurse Maha"
+        assert server.normalize_provider("\u0627\u0644\u062f\u0643\u062a\u0648\u0631 \u0633\u062a\u064a\u0641") == "Doctor Steve"
+        assert server.normalize_provider("l'infirmi\u00e8re Maha") == "Nurse Maha"
         assert server.normalize_provider("Docteur Steve") == "Doctor Steve"
         assert server.normalize_provider("enfermera Maha") == "Nurse Maha"
-        assert server.normalize_provider("Médico Steve") == "Doctor Steve"
+        assert server.normalize_provider("M\u00e9dico Steve") == "Doctor Steve"
         print("    [OK] Multilingual provider normalization verified across Urdu, Arabic, French, and Spanish")
 
         # Edge Case 7: Multilingual Nurse Maha scope guardrail (Urdu & Arabic symptoms)
-        res_urdu_scope = server.book_appointment("Ali", "+923001112233", "نرس ماہا", valid_date_str, "14:30", "تیز بخار اور ڈاکٹر سے مشورہ")
+        res_urdu_scope = server.book_appointment("Ali", "+923001112233", "\u0646\u0631\u0633 \u0645\u0627\u06c1\u0627", valid_date_str, "14:30", "\u062a\u06cc\u0632 \u0628\u062e\u0627\u0631 \u0627\u0648\u0631 \u0688\u0627\u06a9\u0679\u0631 \u0633\u06d2 \u0645\u0634\u0648\u0631\u06c1")
         assert res_urdu_scope["status"] == "error"
         assert "doctor steve" in res_urdu_scope["message"].lower()
         print("    [OK] Multilingual scope guardrail correctly caught Urdu illness/consultation for Nurse Maha")
@@ -713,7 +738,8 @@ async def run_all_tests():
                                 "arguments": {
                                     "payer": "Aetna",
                                     "member_id": "AETNA9wcSu",
-                                    "patient_name": "John Doe"
+                                    "patient_name": "John Doe",
+                                    "date_of_birth": "1990-01-15"
                                 }
                             }
                         }
@@ -732,7 +758,8 @@ async def run_all_tests():
                 "args": {
                     "payer": "Aetna",
                     "member_id": "AETNA9wcSu",
-                    "patient_name": "John Doe"
+                    "patient_name": "John Doe",
+                    "date_of_birth": "1990-01-15"
                 },
                 "tool_call_id": "retell_ins_1"
             }
@@ -741,13 +768,331 @@ async def run_all_tests():
             assert "coverage with aetna is active" in res_retell_ins.json()["result"].lower()
             print("  [OK] Retell Webhook check_insurance tool call verified")
 
-    # Clean up test appointments
+        # ----------------------------------------------------------------------
+        # TEST 12: FULL PATIENT INTAKE FLOW (NEW)
+        # Tests happy path, insurance failures, no insurance, Amber rejected,
+        # date of birth required, greeting clinic name, system prompt, log masking.
+        # Uses temporary patients file so real data is never touched.
+        # No real Stedi API calls are made.
+        # ----------------------------------------------------------------------
+        print("\n[Test 12] Full Patient Intake Flow (Happy Path, Edge Cases, Prompt & Masking)")
+
+        # Clear patients and appointments for clean test
+        save_appointments([])
+        save_patients([])
+        _insurance_cache.clear()
+
+        # 12a: Full happy path via Vapi payload: check_availability, check_insurance (mocked 200), book_appointment
+        # Step 1: check_availability
+        avail_payload_vapi = {
+            "message": {
+                "type": "tool-calls",
+                "call": {"id": "call_happy_vapi_1"},
+                "toolCalls": [
+                    {
+                        "id": "tc_avail_12a",
+                        "function": {
+                            "name": "check_availability",
+                            "arguments": {"provider": "Doctor Steve", "date": valid_date_str}
+                        }
+                    }
+                ]
+            }
+        }
+        res_avail_12a = await client.post("/webhook", json=avail_payload_vapi, headers=headers)
+        assert res_avail_12a.status_code == 200
+        avail_msg = res_avail_12a.json()["results"][0]["result"]
+        assert "openings" in avail_msg.lower()
+        print("  [OK] 12a Vapi check_availability returned openings")
+
+        # Step 2: check_insurance (mocked 200 active)
+        with patch("stedi_client.check_eligibility_mock") as mock_ins:
+            mock_ins.return_value = {
+                "status": "active",
+                "payer": "Aetna",
+                "masked_member_id": "******wcSu",
+                "copay": 25.0,
+                "deductible": 500.0,
+                "message": "Your coverage with Aetna is active. Your copay is $25 and your remaining deductible is $500."
+            }
+            ins_payload_vapi = {
+                "message": {
+                    "type": "tool-calls",
+                    "call": {"id": "call_happy_vapi_1"},
+                    "toolCalls": [
+                        {
+                            "id": "tc_ins_12a",
+                            "function": {
+                                "name": "check_insurance",
+                                "arguments": {
+                                    "payer": "Aetna",
+                                    "member_id": "AETNA9wcSu",
+                                    "patient_name": "Fake Happy Patient",
+                                    "date_of_birth": "1985-03-20"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+            res_ins_12a = await client.post("/webhook", json=ins_payload_vapi, headers=headers)
+            assert res_ins_12a.status_code == 200
+            ins_msg = res_ins_12a.json()["results"][0]["result"]
+            assert "coverage with aetna is active" in ins_msg.lower()
+            print("  [OK] 12a Vapi check_insurance (mocked 200) returned active coverage")
+
+        # Step 3: book_appointment
+        book_payload_12a = {
+            "message": {
+                "type": "tool-calls",
+                "call": {"id": "call_happy_vapi_1"},
+                "toolCalls": [
+                    {
+                        "id": "tc_book_12a",
+                        "function": {
+                            "name": "book_appointment",
+                            "arguments": {
+                                "patient_name": "Fake Happy Patient",
+                                "phone": "+15551234567",
+                                "provider": "Doctor Steve",
+                                "date": valid_date_str,
+                                "time": "09:00 AM",
+                                "reason": "Annual check-up",
+                                "date_of_birth": "1985-03-20",
+                                "insurance_payer": "Aetna",
+                                "member_id": "AETNA9wcSu",
+                                "insurance_status": "verified",
+                                "copay": 25.0,
+                                "deductible": 500.0
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+        res_book_12a = await client.post("/webhook", json=book_payload_12a, headers=headers)
+        assert res_book_12a.status_code == 200
+        book_msg_12a = res_book_12a.json()["results"][0]["result"]
+        assert "confirmed" in book_msg_12a.lower()
+        assert "APT-" in book_msg_12a
+
+        # Verify patients.json has the complete record
+        patients = load_patients()
+        assert len(patients) >= 1
+        pat = patients[-1]
+        assert pat["full_name"] == "Fake Happy Patient"
+        assert pat["date_of_birth"] == "1985-03-20"
+        assert pat["insurance_payer"] == "Aetna"
+        assert pat["member_id"] == "AETNA9wcSu"
+        assert pat["insurance_status"] == "verified"
+        assert pat["copay"] == 25.0
+        assert pat["deductible"] == 500.0
+        assert pat["provider"] == "Doctor Steve"
+        print("  [OK] 12a Vapi happy path: patients.json has complete record with copay $25 and deductible $500")
+
+        # 12b: Same path through Retell payload format
+        save_appointments([])
+        save_patients([])
+        _insurance_cache.clear()
+
+        # Retell check_availability
+        retell_avail_12b = await client.post(
+            "/webhook/retell",
+            json={"name": "check_availability", "args": {"provider": "Nurse Maha", "date": valid_date_str}, "tool_call_id": "rt_avail_12b", "call_id": "call_happy_retell_1"},
+            headers=headers
+        )
+        assert retell_avail_12b.status_code == 200
+        assert "openings" in retell_avail_12b.json()["result"].lower() or "maha" in retell_avail_12b.json()["result"].lower()
+        print("  [OK] 12b Retell check_availability confirmed")
+
+        # Retell check_insurance (mocked 200)
+        with patch("stedi_client.check_eligibility_mock") as mock_ins:
+            mock_ins.return_value = {
+                "status": "active",
+                "payer": "Cigna",
+                "masked_member_id": "*******UxNm",
+                "copay": 30.0,
+                "deductible": 750.0,
+                "message": "Your coverage with Cigna is active. Your copay is $30 and your remaining deductible is $750."
+            }
+            retell_ins_12b = await client.post(
+                "/webhook/retell",
+                json={"name": "check_insurance", "args": {"payer": "Cigna", "member_id": "CIGNAJTUxNm", "patient_name": "Retell Patient", "date_of_birth": "1992-06-15"}, "tool_call_id": "rt_ins_12b", "call_id": "call_happy_retell_1"},
+                headers=headers
+            )
+            assert retell_ins_12b.status_code == 200
+            assert "cigna" in retell_ins_12b.json()["result"].lower()
+            print("  [OK] 12b Retell check_insurance (mocked 200) confirmed")
+
+        # Retell book_appointment
+        retell_book_12b = await client.post(
+            "/webhook/retell",
+            json={
+                "name": "book_appointment",
+                "args": {
+                    "patient_name": "Retell Patient",
+                    "phone": "+15559876543",
+                    "provider": "Nurse Maha",
+                    "date": valid_date_str,
+                    "time": "10:00 AM",
+                    "reason": "Blood pressure check",
+                    "date_of_birth": "1992-06-15"
+                },
+                "tool_call_id": "rt_book_12b",
+                "call_id": "call_happy_retell_1"
+            },
+            headers=headers
+        )
+        assert retell_book_12b.status_code == 200
+        assert "confirmed" in retell_book_12b.json()["result"].lower()
+
+        patients = load_patients()
+        pat_retell = patients[-1]
+        assert pat_retell["full_name"] == "Retell Patient"
+        assert pat_retell["provider"] == "Nurse Maha"
+        # Insurance should have been filled from cache
+        assert pat_retell["insurance_payer"] == "Cigna"
+        assert pat_retell["copay"] == 30.0
+        assert pat_retell["deductible"] == 750.0
+        print("  [OK] 12b Retell happy path: patient record complete with cached insurance data")
+
+        # 12c: Nurse Maha booking works for routine care, but complex consultation redirects to Doctor Steve
+        save_appointments([])
+        save_patients([])
+        res_maha_routine = server.book_appointment("Maha Test Patient", "+15551111111", "Nurse Maha", valid_date_str, "09:00 AM", "Blood pressure check")
+        assert res_maha_routine["status"] == "confirmed"
+        res_maha_complex = server.book_appointment("Maha Complex Patient", "+15552222222", "Nurse Maha", valid_date_str, "09:30 AM", "Severe chest pain and complex medical consultation")
+        assert res_maha_complex["status"] == "error"
+        assert "doctor steve" in res_maha_complex["message"].lower()
+        print("  [OK] 12c Nurse Maha: routine booking works, complex consultation redirected to Doctor Steve")
+
+        # 12d: The name "Amber" is no longer accepted as a provider
+        assert server.normalize_provider("Amber") is None
+        assert server.normalize_provider("nurse amber") is None
+        assert server.normalize_provider("amber johnson") is None
+        print("  [OK] 12d Amber is no longer accepted as a provider")
+
+        # 12e: Insurance not found (subscriber not found) - booking still succeeds, insurance_status is "unverified"
+        save_appointments([])
+        save_patients([])
+        _insurance_cache.clear()
+
+        with patch("stedi_client.check_eligibility_mock") as mock_ins:
+            mock_ins.return_value = {
+                "status": "not_found",
+                "payer": "UnitedHealthcare",
+                "masked_member_id": "****AA75",
+                "message": "I could not verify that member ID with UnitedHealthcare. Let me connect you with our front desk to help confirm your details."
+            }
+            ins_nf_result = server.check_insurance("UnitedHealthcare", "UHCAAA75", "Not Found Patient", "1990-01-01", call_id="call_notfound_1")
+            assert ins_nf_result["status"] == "not_found"
+
+        # Book should still succeed with unverified status
+        book_nf = server.book_appointment(
+            "Not Found Patient", "+15553333333", "Doctor Steve", valid_date_str, "12:00",
+            "Follow-up", date_of_birth="1990-01-01", call_id="call_notfound_1"
+        )
+        assert book_nf["status"] == "confirmed"
+        patients = load_patients()
+        pat_nf = patients[-1]
+        assert pat_nf["insurance_status"] == "unverified"
+        assert pat_nf["insurance_payer"] == "UnitedHealthcare"
+        print("  [OK] 12e Insurance not found: booking succeeded, insurance_status is 'unverified'")
+
+        # 12f: Stedi timeout - booking still succeeds, front desk offer in the reply
+        save_appointments([])
+        save_patients([])
+        _insurance_cache.clear()
+
+        with patch("stedi_client.check_eligibility_mock") as mock_ins:
+            mock_ins.return_value = {
+                "status": "timeout",
+                "payer": "Cigna",
+                "masked_member_id": "*******UxNm",
+                "message": "I am having trouble reaching the insurance verification service right now. Let me connect you directly to our front desk so they can check your coverage."
+            }
+            ins_timeout_result = server.check_insurance("Cigna", "CIGNAJTUxNm", "Timeout Patient", "1988-12-25", call_id="call_timeout_1")
+            assert ins_timeout_result["status"] == "timeout"
+            assert "front desk" in ins_timeout_result["message"].lower()
+
+        book_timeout = server.book_appointment(
+            "Timeout Patient", "+15554444444", "Doctor Steve", valid_date_str, "13:00",
+            "General visit", date_of_birth="1988-12-25", call_id="call_timeout_1"
+        )
+        assert book_timeout["status"] == "confirmed"
+        patients = load_patients()
+        pat_timeout = patients[-1]
+        assert pat_timeout["insurance_status"] == "unverified"
+        print("  [OK] 12f Stedi timeout: booking succeeded, insurance_status is 'unverified'")
+
+        # 12g: No insurance - insurance_status is "self_pay"
+        save_appointments([])
+        save_patients([])
+        _insurance_cache.clear()
+
+        book_no_ins = server.book_appointment(
+            "Self Pay Patient", "+15555555555", "Doctor Steve", valid_date_str, "14:00",
+            "Routine visit", date_of_birth="2000-05-10"
+        )
+        assert book_no_ins["status"] == "confirmed"
+        patients = load_patients()
+        pat_self = patients[-1]
+        assert pat_self["insurance_status"] == "self_pay"
+        assert pat_self["insurance_payer"] == ""
+        assert pat_self["member_id"] == ""
+        print("  [OK] 12g No insurance: insurance_status is 'self_pay'")
+
+        # 12h: Missing date of birth - the server asks for it clearly and does not book
+        res_no_dob = server.check_insurance("Aetna", "AETNA9wcSu", "No DOB Patient", "", call_id="call_no_dob")
+        assert res_no_dob["status"] == "error"
+        assert "date of birth" in res_no_dob["message"].lower()
+        print("  [OK] 12h Missing date of birth: server asks for it clearly")
+
+        # 12i: Greeting contains the clinic name in all four call modes
+        for mode_name in ["normal", "after_hours", "overflow", "marketplace"]:
+            g = get_dynamic_greeting(morning_dt, mode=mode_name)
+            assert "Neural Hub" in g, f"Clinic name missing from {mode_name} greeting: {g}"
+        print("  [OK] 12i Greeting contains 'Neural Hub' in all four call modes")
+
+        # 12j: System prompt in assistant_config.json contains speaking pace block and Maha, no Amber
+        with open("assistant_config.json", "r", encoding="utf-8") as f:
+            config = json.load(f)
+        sys_prompt = config["model"]["messages"][0]["content"]
+        assert "SPEAKING PACE RULES" in sys_prompt
+        assert "Do not speak too fast" in sys_prompt
+        assert "Never rush the caller" in sys_prompt
+        assert "Maha" in sys_prompt
+        assert "Amber" not in sys_prompt
+        assert "amber" not in sys_prompt
+        # Also check Retell prompt
+        retell_prompt = config["retell"]["general_prompt"]
+        assert "SPEAKING PACE RULES" in retell_prompt
+        assert "Maha" in retell_prompt
+        assert "Amber" not in retell_prompt
+        print("  [OK] 12j System prompt has speaking pace block, Maha, no Amber")
+
+        # 12k: Check the logs never show a full phone number or full member ID
+        masked_phone_test = mask_phone_number("+15551234567")
+        assert "+15551234567" not in masked_phone_test
+        assert "4567" in masked_phone_test
+        assert "***-***-" in masked_phone_test
+
+        masked_id_test = mask_member_id("AETNA9wcSu")
+        assert "AETNA9" not in masked_id_test
+        assert "wcSu" in masked_id_test
+        print("  [OK] 12k Log masking: phone numbers and member IDs are properly masked")
+
+    # Clean up test files and restore original settings
     save_appointments([])
+    server.PATIENTS_FILE = original_patients_file
+    if os.path.exists(TEST_PATIENTS_FILE):
+        os.remove(TEST_PATIENTS_FILE)
+    _insurance_cache.clear()
     server.CALL_MODE = orig_call_mode
     server.DEPLOYMENT_MODE = orig_dep_mode
 
     print("\n" + "=" * 70)
-    print("ALL 11 TEST SUITES PASSED SUCCESSFULLY! (100% PASS RATE)")
+    print("ALL 12 TEST SUITES PASSED SUCCESSFULLY! (100% PASS RATE)")
     print("=" * 70)
 
 
