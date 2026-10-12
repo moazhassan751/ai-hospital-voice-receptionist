@@ -6,6 +6,9 @@
 # Rendered credentials
 assistant_config.rendered.json
 
+# Patient records (contains full member IDs, test data only)
+patients.json
+
 # Python bytecode & cache
 __pycache__/
 *.py[cod]
