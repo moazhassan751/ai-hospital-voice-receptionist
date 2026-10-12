@@ -20,7 +20,7 @@
       --accent-teal: #14b8a6;
       --accent-emerald: #10b981;
       --accent-indigo: #6366f1;
-      --accent-amber: #f59e0b;
+      --accent-warning: #f59e0b;
       --accent-rose: #f43f5e;
       --text-main: #f8fafc;
       --text-muted: #94a3b8;
@@ -966,7 +966,7 @@
       if (data.status === "available" && data.available_slots && data.available_slots.length > 0) {
         container.innerHTML = data.available_slots.map(s => `<div class="slot-pill">${s}</div>`).join("");
       } else {
-        container.innerHTML = `<div style="color: var(--accent-amber); font-size: 12px; grid-column: 1/-1;">${data.message || 'No slots available on this date.'}</div>`;
+        container.innerHTML = `<div style="color: var(--accent-warning); font-size: 12px; grid-column: 1/-1;">${data.message || 'No slots available on this date.'}</div>`;
       }
     } catch (e) {
       container.innerHTML = '<div style="color: var(--accent-rose); font-size: 12px;">Error checking slots.</div>';
