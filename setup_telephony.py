@@ -646,7 +646,10 @@ def handle_sync_assistant(args: argparse.Namespace) -> None:
         "clientMessages": rendered_cfg.get("clientMessages", [
             "transcript",
             "tool-calls"
-        ])
+        ]),
+        "startSpeakingPlan": rendered_cfg.get("startSpeakingPlan"),
+        "stopSpeakingPlan": rendered_cfg.get("stopSpeakingPlan"),
+        "endCallPhrases": rendered_cfg.get("endCallPhrases")
     }
 
     print(f"[*] Target Assistant ID: {assistant_id}")
@@ -687,25 +690,37 @@ def handle_sync_assistant(args: argparse.Namespace) -> None:
                 print(f"Updated At:     {resp_data.get('updatedAt')}")
                 print(f"First Message:  {resp_data.get('firstMessage')}")
                 print(f"Model:          {resp_data.get('model', {}).get('model')}")
+                print(f"Voice Speed:    {resp_data.get('voice', {}).get('speed')}")
                 print(f"Language Mode:  {resp_data.get('transcriber', {}).get('language')}")
                 print("\nYour Vapi Assistant is now live and updated with:")
                 print("  [OK] Full Multilingual Support (Urdu, English, French, Spanish, Arabic)")
                 print("  [OK] Nurse Maha & Doctor Steve clinical scopes")
+                print("  [OK] Speaking Pace Rules & Voice Speed 0.85")
                 print("  [OK] Up-to-date system prompt & live webhooks")
                 
                 # Also synchronize org-level tools if present in Vapi
                 try:
                     tools_resp = client.get(f"{VAPI_BASE_URL}/tool", headers=get_vapi_headers(api_key))
                     if tools_resp.status_code == 200:
+                        cfg_tools = rendered_cfg.get("model", {}).get("tools", [])
                         for tool in tools_resp.json():
                             fn_name = tool.get("function", {}).get("name")
                             if tool.get("type") == "function" and fn_name in ["check_availability", "book_appointment", "find_clinic", "check_insurance"]:
-                                client.patch(
+                                matching_cfg = next((t for t in cfg_tools if t.get("function", {}).get("name") == fn_name), None)
+                                patch_body: Dict[str, Any] = {
+                                    "server": {"url": f"{public_base_url}/webhook", "secret": webhook_secret}
+                                }
+                                if matching_cfg and "function" in matching_cfg:
+                                    patch_body["function"] = matching_cfg["function"]
+                                tool_patch_res = client.patch(
                                     f"{VAPI_BASE_URL}/tool/{tool['id']}",
                                     headers=get_vapi_headers(api_key),
-                                    json={"server": {"url": f"{public_base_url}/webhook", "secret": webhook_secret}}
+                                    json=patch_body
                                 )
-                                print(f"  [OK] Synced org-level tool '{fn_name}' URL -> {public_base_url}/webhook")
+                                if tool_patch_res.status_code == 200:
+                                    print(f"  [OK] Synced org tool '{fn_name}' function schema & URL -> {public_base_url}/webhook")
+                                else:
+                                    print(f"  [WARN] Org tool '{fn_name}' sync returned HTTP {tool_patch_res.status_code}")
                 except Exception as t_err:
                     print(f"  [NOTE] Org tools check: {t_err}")
                 print("=" * 60)
